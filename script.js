@@ -31,14 +31,12 @@ function typeConverter(row) {
 
     const newRow = {};
     for (const key in row) {
-        // Sanitiza a chave e remove espaços e caracteres especiais
         const cleanKey = key.replace(/[\(\)%]/g, '').replace(/ /g, '_').replace('.', ''); 
         newRow[cleanKey] = row[key];
     }
     
     newRow.Timestamp = new Date(newRow.Timestamp);
     
-    // Conversões para float/int
     newRow.Uso_CPU = parseFloat(newRow.Uso_CPU) || 0;
     newRow.Uso_RAM = parseFloat(newRow.Uso_RAM) || 0;
     newRow.Uso_Disco = parseFloat(newRow.Uso_Disco) || 0;
@@ -95,7 +93,7 @@ function startAutoUpdate() {
 }
 
 // --------------------------------------------------------------------------
-// Lógica de Carregamento e PapaParse 
+// Lógica de Carregamento e PapaParse
 // --------------------------------------------------------------------------
 
 function initMonitor() {
@@ -117,7 +115,7 @@ function initMonitor() {
         download: true, 
         header: true,   
         skipEmptyLines: true,
-        worker: false, // Desabilita worker para evitar falhas em caminhos relativos
+        worker: false, 
         downloadRequestHeaders: {
             'Cache-Control': 'no-cache', 
             'Pragma': 'no-cache',
@@ -196,15 +194,24 @@ function filterChart() {
     drawAllCharts(filteredData);
 }
 
+// --- CORREÇÃO DE INSTABILIDADE E ERRO DE NULL ---
 function destroyAllCharts() {
+    // 1. Destrói as instâncias Chart.js existentes
     if (chartInstanceMeet) chartInstanceMeet.destroy();
     if (chartInstanceMaquina) chartInstanceMaquina.destroy();
     if (chartInstanceTracert) chartInstanceTracert.destroy();
     
-    // Recria os elementos div internos, garantindo que o canvas seja recriado com o ID correto
-    document.getElementById('chart-saude-meet').innerHTML = '<h3><i class="fas fa-wifi"></i> Saúde Geral, Latência Média e Jitter (Meet)</h3><canvas id="meetChartCanvas"></canvas>';
-    document.getElementById('chart-saude-maquina').innerHTML = '<h3><i class="fas fa-desktop"></i> Carga da Máquina (CPU, RAM, Disco)</h3><canvas id="maquinaChartCanvas"></canvas>';
-    document.getElementById('chart-tracert').innerHTML = '<h3><i class="fas fa-route"></i> Detalhe da Rota (Latência por Hop - Último Registro Filtrado)</h3><canvas id="tracertChartCanvas"></canvas>';
+    // 2. Zera as variáveis de instância
+    chartInstanceMeet = null;
+    chartInstanceMaquina = null;
+    chartInstanceTracert = null;
+
+    // 3. Limpa explicitamente o canvas antigo de cada container
+    document.querySelector('#chart-saude-meet canvas')?.remove();
+    document.querySelector('#chart-saude-maquina canvas')?.remove();
+    document.querySelector('#chart-tracert canvas')?.remove();
+
+    // Nota: O título h3 não é apagado/recriado neste modelo, apenas o canvas.
 }
 
 function updateChartTheme(isDark) {
@@ -212,6 +219,7 @@ function updateChartTheme(isDark) {
 }
 
 function drawAllCharts(dataToDisplay) {
+    // 1. Limpeza Segura (resolve o erro 'null' e o travamento)
     destroyAllCharts(); 
     
     if (dataToDisplay.length === 0) {
@@ -221,14 +229,35 @@ function drawAllCharts(dataToDisplay) {
 
     const isDark = document.body.classList.contains('dark-mode');
     
+    // 2. Desenho, onde o canvas será recriado no DOM
     drawMeetCharts(dataToDisplay, isDark);
     drawMaquinaChart(dataToDisplay, isDark);
     drawTracertChart(dataToDisplay[dataToDisplay.length - 1], isDark);
 }
-
 // -----------------------------------
 // FUNÇÕES DE DESENHO DE GRÁFICOS (Chart.js)
 // -----------------------------------
+
+// Função auxiliar para criar e anexar o canvas (NOVA FUNÇÃO)
+function createAndAppendCanvas(containerId, canvasId) {
+    const container = document.getElementById(containerId);
+    if (!container) return null;
+
+    // Cria o novo elemento canvas
+    const newCanvas = document.createElement('canvas');
+    newCanvas.id = canvasId;
+    
+    // Encontra o título H3 (se existir) para anexar o canvas depois dele
+    const titleElement = container.querySelector('h3');
+    if (titleElement) {
+        container.insertBefore(newCanvas, titleElement.nextSibling);
+    } else {
+        container.appendChild(newCanvas);
+    }
+    return newCanvas;
+}
+
+
 function drawMeetCharts(dataToDisplay, isDark) {
     const labels = dataToDisplay.map(row => row.Timestamp.toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'}));
     const dataScores = dataToDisplay.map(row => row.Saude_Meet0100);
@@ -241,7 +270,11 @@ function drawMeetCharts(dataToDisplay, isDark) {
     let maxLatJitter = d3.max(dataJitter.concat(dataLatency)) || 10;
     const latencyMaxScale = Math.max(50, Math.ceil(maxLatJitter / 25) * 25); 
 
-    const ctxMeet = document.getElementById('meetChartCanvas').getContext('2d');
+    // CHAMA A NOVA FUNÇÃO DE CRIAÇÃO
+    const canvasElement = createAndAppendCanvas('chart-saude-meet', 'meetChartCanvas');
+    if (!canvasElement) return;
+
+    const ctxMeet = canvasElement.getContext('2d');
     chartInstanceMeet = new Chart(ctxMeet, {
         type: 'line', 
         data: {
@@ -302,7 +335,11 @@ function drawMaquinaChart(dataToDisplay, isDark) {
     const maxUsage = d3.max(allUsage) || 10; 
     const usageMaxScale = Math.max(50, Math.ceil(maxUsage / 10) * 10); 
     
-    const ctxMaquina = document.getElementById('maquinaChartCanvas').getContext('2d');
+    // CHAMA A NOVA FUNÇÃO DE CRIAÇÃO
+    const canvasElement = createAndAppendCanvas('chart-saude-maquina', 'maquinaChartCanvas');
+    if (!canvasElement) return;
+
+    const ctxMaquina = canvasElement.getContext('2d');
     chartInstanceMaquina = new Chart(ctxMaquina, {
         type: 'line', 
         data: {
@@ -361,7 +398,7 @@ function drawTracertChart(lastRecord, isDark) {
     }
     
     if (tracertData.length === 0) {
-        document.getElementById('chart-tracert').innerHTML = 'Nenhum dado de rota (Tracert) válido para plotagem.';
+        document.getElementById('chart-tracert').innerHTML = '<h3><i class="fas fa-route"></i> Detalhe da Rota (Latência por Hop - Último Registro Filtrado)</h3><p>Nenhum dado de rota (Tracert) válido para plotagem.</p>';
         return;
     }
 
@@ -372,7 +409,11 @@ function drawTracertChart(lastRecord, isDark) {
     const maxLatTracert = d3.max(dataLatencies) || 50;
     const tracertMaxScale = Math.max(50, Math.ceil(maxLatTracert / 50) * 50);
 
-    const ctxTracert = document.getElementById('tracertChartCanvas').getContext('2d');
+    // CHAMA A NOVA FUNÇÃO DE CRIAÇÃO
+    const canvasElement = createAndAppendCanvas('chart-tracert', 'tracertChartCanvas');
+    if (!canvasElement) return;
+
+    const ctxTracert = canvasElement.getContext('2d');
     chartInstanceTracert = new Chart(ctxTracert, {
         type: 'bar',
         data: {
@@ -431,7 +472,6 @@ function displayEventDetails(dataRow) {
     const detailsContainer = document.getElementById('event-details');
     const content = document.getElementById('event-content');
 
-    // REMOVIDA A CHAVE 'Usuario'
     const primaryFields = [
         { label: "Timestamp", key: "Timestamp", format: d => d.toLocaleString('pt-BR') },
         { label: "Hostname", key: "Hostname" },
