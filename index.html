@@ -18,7 +18,7 @@
             --bg-light: #f7f7f7;
             --bg-card: #ffffff;
             --text-dark: #2c3e50;
-            --primary: #3498db;
+            --primary: #3498db; /* Azul moderno */
             --shadow: 0 4px 8px rgba(0, 0, 0, 0.05);
             --border: #e0e0e0;
         }
@@ -27,7 +27,7 @@
             --bg-light: #1e2124;
             --bg-card: #282b30;
             --text-dark: #ffffff;
-            --primary: #7289da;
+            --primary: #7289da; /* Roxo/Azul escuro */
             --shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
             --border: #444;
         }
@@ -94,7 +94,7 @@
 
     <header>
         <h1><i class="fas fa-chart-line"></i> Monitoramento de QoS</h1>
-        <p>Análise de Carga da Máquina e Saúde da Rede</p>
+        <p>Análise de Carga da Máquina e Saúde da Rede para Google Meet</p>
     </header>
 
     <div class="container">
@@ -133,20 +133,20 @@
         
         <div id="event-details">
             <h2 style="margin-top: 0;">Detalhes do Evento Selecionado</h2>
-            <div id="event-content"></div>
+            <div id="event-content">Clique em um ponto no gráfico de "Saúde Geral" para ver os detalhes do Tracert.</div>
         </div>
 
         <div class="chart-container" id="chart-saude-meet">
             <h3><i class="fas fa-wifi"></i> Saúde Geral, Latência Média e Jitter (Meet)</h3>
-            </div>
+        </div>
 
         <div class="chart-container" id="chart-saude-maquina">
             <h3><i class="fas fa-desktop"></i> Carga da Máquina (CPU, RAM, Disco)</h3>
-            </div>
+        </div>
 
         <div class="chart-container" id="chart-tracert">
             <h3><i class="fas fa-route"></i> Detalhe da Rota (Latência por Hop - Último Registro Filtrado)</h3>
-            </div>
+        </div>
 
     </div>
 
