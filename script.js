@@ -2,15 +2,17 @@
 let allData = [];
 let chartInstanceMeet = null;
 let chartInstanceMaquina = null;
-let chartInstanceVelocidade = null; // Nova instância
+let chartInstanceVelocidade = null;
 let chartInstanceTracert = null;
 let currentDataToDisplay = []; 
-const AUTO_UPDATE_INTERVAL = 10 * 60 * 1000;
+const AUTO_UPDATE_INTERVAL = 10 * 60 * 1000; // 10 minutos em milissegundos
 let autoUpdateTimer = null; 
-const BASE_CSV_URL = './'; 
-const MAX_TTL = 30; 
+const BASE_CSV_URL = './'; // Caminho relativo para o GitHub Pages
+const MAX_TTL = 30; // Limite fixo de hops para o CSV
 
-// ... (Funções Auxiliares: getCurrentDateFormatted, getFileName, typeConverter) ...
+// --------------------------------------------------------------------------
+// Funções Auxiliares
+// --------------------------------------------------------------------------
 
 function getCurrentDateFormatted() {
     const today = new Date();
@@ -36,6 +38,7 @@ function typeConverter(row) {
     
     newRow.Timestamp = new Date(newRow.Timestamp);
     
+    // Conversões para float/int
     newRow.Uso_CPU = parseFloat(newRow.Uso_CPU) || 0;
     newRow.Uso_RAM = parseFloat(newRow.Uso_RAM) || 0;
     newRow.Uso_Disco = parseFloat(newRow.Uso_Disco) || 0;
@@ -57,7 +60,9 @@ function typeConverter(row) {
 }
 
 
-// ... (Funções de Tema e Inicialização permanecem as mesmas) ...
+// --------------------------------------------------------------------------
+// Lógica de Tema e Inicialização
+// --------------------------------------------------------------------------
 
 function toggleDarkMode() {
     const isDark = document.body.classList.toggle('dark-mode');
@@ -112,7 +117,7 @@ function initMonitor() {
         download: true, 
         header: true,   
         skipEmptyLines: true,
-        worker: false, 
+        worker: false, // Desabilita worker para evitar falhas de threading
         downloadRequestHeaders: {
             'Cache-Control': 'no-cache', 
             'Pragma': 'no-cache',
@@ -191,31 +196,45 @@ function filterChart() {
     drawAllCharts(filteredData);
 }
 
+// --- SOLUÇÃO ANTI-TRAVAMENTO ---
 function destroyAllCharts() {
     // 1. Destrói as instâncias Chart.js existentes
     if (chartInstanceMeet) chartInstanceMeet.destroy();
     if (chartInstanceMaquina) chartInstanceMaquina.destroy();
-    if (chartInstanceVelocidade) chartInstanceVelocidade.destroy(); // Nova instância
+    if (chartInstanceVelocidade) chartInstanceVelocidade.destroy(); 
     if (chartInstanceTracert) chartInstanceTracert.destroy();
     
-    // 2. Zera as variáveis de instância (Prevenção contra vazamento de memória)
+    // 2. Zera as variáveis de instância
     chartInstanceMeet = null;
     chartInstanceMaquina = null;
     chartInstanceVelocidade = null;
     chartInstanceTracert = null;
-    
-    // 3. Remove e recria os elementos Canvas para garantir uma limpeza total do DOM (Resolve o travamento)
-    document.querySelector('#chart-saude-meet canvas')?.remove();
-    document.querySelector('#chart-saude-maquina canvas')?.remove();
-    document.querySelector('#chart-velocidade canvas')?.remove(); // Novo canvas
-    document.querySelector('#chart-tracert canvas')?.remove();
+
+    // 3. Define os títulos e recria os elementos canvas, de forma segura
+    const containers = [
+        { id: 'chart-saude-meet', title: '<h3><i class="fas fa-wifi"></i> 3. Teste de Qualidade do Meet (Saúde, Latência Média, Jitter)</h3>', canvasId: 'meetChartCanvas' },
+        { id: 'chart-saude-maquina', title: '<h3><i class="fas fa-desktop"></i> 1. Carga Detalhada do Computador (CPU, RAM, Disco e Carga Média)</h3>', canvasId: 'maquinaChartCanvas' },
+        { id: 'chart-velocidade', title: '<h3><i class="fas fa-tachometer-alt"></i> 2. Teste de Velocidade da Internet (Download, Upload, Latência)</h3>', canvasId: 'velocidadeChartCanvas' },
+        { id: 'chart-tracert', title: '<h3><i class="fas fa-route"></i> 4. Tracert do Meet (Rota por Salto)</h3>', canvasId: 'tracertChartCanvas' }
+    ];
+
+    containers.forEach(item => {
+        const container = document.getElementById(item.id);
+        if (container) {
+            // Remove canvas antigo e anexa o novo, de forma segura
+            document.querySelector(`#${item.id} canvas`)?.remove();
+            container.innerHTML = `${item.title}<canvas id="${item.canvasId}"></canvas>`;
+        }
+    });
 }
+
 
 function updateChartTheme(isDark) {
     drawAllCharts(currentDataToDisplay);
 }
 
 function drawAllCharts(dataToDisplay) {
+    // A limpeza é a PRIMEIRA coisa
     destroyAllCharts(); 
     
     if (dataToDisplay.length === 0) {
@@ -225,14 +244,10 @@ function drawAllCharts(dataToDisplay) {
 
     const isDark = document.body.classList.contains('dark-mode');
     
-    // ORDEM SOLICITADA: 
-    // 1. Carga
+    // ORDEM SOLICITADA:
     drawMaquinaChart(dataToDisplay, isDark);
-    // 2. Velocidade
     drawVelocidadeChart(dataToDisplay, isDark);
-    // 3. Meet Qualidade
     drawMeetCharts(dataToDisplay, isDark);
-    // 4. Tracert
     drawTracertChart(dataToDisplay[dataToDisplay.length - 1], isDark);
 }
 
@@ -240,25 +255,14 @@ function drawAllCharts(dataToDisplay) {
 // FUNÇÕES DE DESENHO DE GRÁFICOS (Chart.js)
 // -----------------------------------
 
-// Função auxiliar para criar e anexar o canvas
-function createAndAppendCanvas(containerId, canvasId) {
-    const container = document.getElementById(containerId);
-    if (!container) return null;
-
-    const newCanvas = document.createElement('canvas');
-    newCanvas.id = canvasId;
-    
-    const titleElement = container.querySelector('h3');
-    if (titleElement) {
-        container.insertBefore(newCanvas, titleElement.nextSibling);
-    } else {
-        container.appendChild(newCanvas);
-    }
-    return newCanvas;
+// Função auxiliar para obter o contexto do canvas
+function getChartContext(canvasId) {
+    const canvas = document.getElementById(canvasId);
+    return canvas ? canvas.getContext('2d') : null;
 }
 
 // -------------------------------------------------------------
-// GRÁFICO 1: CARGA DETALHADA DO COMPUTADOR (CPU, RAM, DISCO, MÉDIA)
+// GRÁFICO 1: CARGA DETALHADA DO COMPUTADOR
 // -------------------------------------------------------------
 function drawMaquinaChart(dataToDisplay, isDark) {
     const labels = dataToDisplay.map(row => row.Timestamp.toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'}));
@@ -270,14 +274,12 @@ function drawMaquinaChart(dataToDisplay, isDark) {
     const color = isDark ? '#f0f0f0' : '#333';
     const gridColor = isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)';
     
-    // Escala dinâmica para Carga
     const allUsage = dataCPU.concat(dataRAM).concat(dataDisco).concat(dataCargaMedia).filter(v => v > 0);
     const maxUsage = d3.max(allUsage) || 10; 
     const usageMaxScale = Math.max(50, Math.ceil(maxUsage / 10) * 10); 
     
-    const canvasElement = createAndAppendCanvas('chart-saude-maquina', 'maquinaChartCanvas');
-    if (!canvasElement) return;
-    const ctxMaquina = canvasElement.getContext('2d');
+    const ctxMaquina = getChartContext('maquinaChartCanvas');
+    if (!ctxMaquina) return;
     
     chartInstanceMaquina = new Chart(ctxMaquina, {
         type: 'line', 
@@ -323,17 +325,14 @@ function drawVelocidadeChart(dataToDisplay, isDark) {
     const color = isDark ? '#f0f0f0' : '#333';
     const gridColor = isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)';
     
-    // Escala dinâmica para Mbps (múltiplo de 100)
     let maxMbps = d3.max(dataDownload.concat(dataUpload)) || 50; 
     const mbpsMaxScale = Math.max(100, Math.ceil(maxMbps / 100) * 100); 
 
-    // Escala dinâmica para Latência (múltiplo de 50)
     let maxLatency = d3.max(dataLatency) || 50;
     const latencyMaxScale = Math.max(50, Math.ceil(maxLatency / 50) * 50);
 
-    const canvasElement = createAndAppendCanvas('chart-velocidade', 'velocidadeChartCanvas');
-    if (!canvasElement) return;
-    const ctxVelocidade = canvasElement.getContext('2d');
+    const ctxVelocidade = getChartContext('velocidadeChartCanvas');
+    if (!ctxVelocidade) return;
     
     chartInstanceVelocidade = new Chart(ctxVelocidade, {
         type: 'line', 
@@ -373,6 +372,9 @@ function drawVelocidadeChart(dataToDisplay, isDark) {
 }
 
 
+// -------------------------------------------------------------
+// GRÁFICO 3: QUALIDADE DO MEET (Saúde, Latência, Jitter)
+// -------------------------------------------------------------
 function drawMeetCharts(dataToDisplay, isDark) {
     const labels = dataToDisplay.map(row => row.Timestamp.toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'}));
     const dataScores = dataToDisplay.map(row => row.Saude_Meet0100);
@@ -385,9 +387,8 @@ function drawMeetCharts(dataToDisplay, isDark) {
     let maxLatJitter = d3.max(dataJitter.concat(dataLatency)) || 10;
     const latencyMaxScale = Math.max(50, Math.ceil(maxLatJitter / 25) * 25); 
 
-    const canvasElement = createAndAppendCanvas('chart-saude-meet', 'meetChartCanvas');
-    if (!canvasElement) return;
-    const ctxMeet = canvasElement.getContext('2d');
+    const ctxMeet = getChartContext('meetChartCanvas');
+    if (!ctxMeet) return;
     
     chartInstanceMeet = new Chart(ctxMeet, {
         type: 'line', 
@@ -430,6 +431,9 @@ function drawMeetCharts(dataToDisplay, isDark) {
     });
 }
 
+// -------------------------------------------------------------
+// GRÁFICO 4: TRACERT (Rota por Salto)
+// -------------------------------------------------------------
 function drawTracertChart(lastRecord, isDark) {
     if (!lastRecord) return;
     
@@ -463,10 +467,9 @@ function drawTracertChart(lastRecord, isDark) {
     const maxLatTracert = d3.max(dataLatencies) || 50;
     const tracertMaxScale = Math.max(50, Math.ceil(maxLatTracert / 50) * 50);
 
-    const canvasElement = createAndAppendCanvas('chart-tracert', 'tracertChartCanvas');
-    if (!canvasElement) return;
-    const ctxTracert = canvasElement.getContext('2d');
-    
+    const ctxTracert = getChartContext('tracertChartCanvas');
+    if (!ctxTracert) return;
+
     chartInstanceTracert = new Chart(ctxTracert, {
         type: 'bar',
         data: {
@@ -505,7 +508,6 @@ function drawTracertChart(lastRecord, isDark) {
 function handleChartClick(event) {
     if (typeof Chart === 'undefined') return; 
     
-    // Usa a instância do gráfico de Meet para detectar cliques
     const points = chartInstanceMeet.getElementsAtEventForMode(event, 'index', { intersect: true }, false);
 
     if (points.length === 0) {
@@ -526,7 +528,6 @@ function displayEventDetails(dataRow) {
     const detailsContainer = document.getElementById('event-details');
     const content = document.getElementById('event-content');
 
-    // Primary fields (REMOVIDO USUÁRIO)
     const primaryFields = [
         { label: "Timestamp", key: "Timestamp", format: d => d.toLocaleString('pt-BR') },
         { label: "Hostname", key: "Hostname" },
@@ -553,10 +554,10 @@ function displayEventDetails(dataRow) {
     let foundHops = false;
     for (let i = 1; i <= 30; i++) {
         const ipKey = `Hop_IP_${String(i).padStart(2, '0')}`;
-        const latKey = `Hop_LAT_${String(i).padStart(2, '0')}ms`;
+        const latencyKey = `Hop_LAT_${String(i).padStart(2, '0')}ms`;
 
         const ip = dataRow[ipKey];
-        const latency = dataRow[latKey];
+        const latency = dataRow[latencyKey];
         
         if (ip && ip.trim() !== '') {
             const latencyValue = latency > 0 ? `${latency.toFixed(2)} ms` : 'Perda/Timeout';
