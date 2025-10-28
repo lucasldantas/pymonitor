@@ -2,16 +2,15 @@
 let allData = [];
 let chartInstanceMeet = null;
 let chartInstanceMaquina = null;
+let chartInstanceVelocidade = null; // Nova instância
 let chartInstanceTracert = null;
 let currentDataToDisplay = []; 
-const AUTO_UPDATE_INTERVAL = 10 * 60 * 1000; // 10 minutos em milissegundos
+const AUTO_UPDATE_INTERVAL = 10 * 60 * 1000;
 let autoUpdateTimer = null; 
-const BASE_CSV_URL = './'; // Caminho relativo para o GitHub Pages
-const MAX_TTL = 30; // Limite fixo de hops para o CSV
+const BASE_CSV_URL = './'; 
+const MAX_TTL = 30; 
 
-// --------------------------------------------------------------------------
-// Funções Auxiliares
-// --------------------------------------------------------------------------
+// ... (Funções Auxiliares: getCurrentDateFormatted, getFileName, typeConverter) ...
 
 function getCurrentDateFormatted() {
     const today = new Date();
@@ -58,9 +57,7 @@ function typeConverter(row) {
 }
 
 
-// --------------------------------------------------------------------------
-// Lógica de Tema e Inicialização
-// --------------------------------------------------------------------------
+// ... (Funções de Tema e Inicialização permanecem as mesmas) ...
 
 function toggleDarkMode() {
     const isDark = document.body.classList.toggle('dark-mode');
@@ -194,24 +191,24 @@ function filterChart() {
     drawAllCharts(filteredData);
 }
 
-// --- CORREÇÃO DE INSTABILIDADE E ERRO DE NULL ---
 function destroyAllCharts() {
     // 1. Destrói as instâncias Chart.js existentes
     if (chartInstanceMeet) chartInstanceMeet.destroy();
     if (chartInstanceMaquina) chartInstanceMaquina.destroy();
+    if (chartInstanceVelocidade) chartInstanceVelocidade.destroy(); // Nova instância
     if (chartInstanceTracert) chartInstanceTracert.destroy();
     
-    // 2. Zera as variáveis de instância
+    // 2. Zera as variáveis de instância (Prevenção contra vazamento de memória)
     chartInstanceMeet = null;
     chartInstanceMaquina = null;
+    chartInstanceVelocidade = null;
     chartInstanceTracert = null;
-
-    // 3. Limpa explicitamente o canvas antigo de cada container
+    
+    // 3. Remove e recria os elementos Canvas para garantir uma limpeza total do DOM (Resolve o travamento)
     document.querySelector('#chart-saude-meet canvas')?.remove();
     document.querySelector('#chart-saude-maquina canvas')?.remove();
+    document.querySelector('#chart-velocidade canvas')?.remove(); // Novo canvas
     document.querySelector('#chart-tracert canvas')?.remove();
-
-    // Nota: O título h3 não é apagado/recriado neste modelo, apenas o canvas.
 }
 
 function updateChartTheme(isDark) {
@@ -219,7 +216,6 @@ function updateChartTheme(isDark) {
 }
 
 function drawAllCharts(dataToDisplay) {
-    // 1. Limpeza Segura (resolve o erro 'null' e o travamento)
     destroyAllCharts(); 
     
     if (dataToDisplay.length === 0) {
@@ -229,25 +225,29 @@ function drawAllCharts(dataToDisplay) {
 
     const isDark = document.body.classList.contains('dark-mode');
     
-    // 2. Desenho, onde o canvas será recriado no DOM
-    drawMeetCharts(dataToDisplay, isDark);
+    // ORDEM SOLICITADA: 
+    // 1. Carga
     drawMaquinaChart(dataToDisplay, isDark);
+    // 2. Velocidade
+    drawVelocidadeChart(dataToDisplay, isDark);
+    // 3. Meet Qualidade
+    drawMeetCharts(dataToDisplay, isDark);
+    // 4. Tracert
     drawTracertChart(dataToDisplay[dataToDisplay.length - 1], isDark);
 }
+
 // -----------------------------------
 // FUNÇÕES DE DESENHO DE GRÁFICOS (Chart.js)
 // -----------------------------------
 
-// Função auxiliar para criar e anexar o canvas (NOVA FUNÇÃO)
+// Função auxiliar para criar e anexar o canvas
 function createAndAppendCanvas(containerId, canvasId) {
     const container = document.getElementById(containerId);
     if (!container) return null;
 
-    // Cria o novo elemento canvas
     const newCanvas = document.createElement('canvas');
     newCanvas.id = canvasId;
     
-    // Encontra o título H3 (se existir) para anexar o canvas depois dele
     const titleElement = container.querySelector('h3');
     if (titleElement) {
         container.insertBefore(newCanvas, titleElement.nextSibling);
@@ -255,6 +255,121 @@ function createAndAppendCanvas(containerId, canvasId) {
         container.appendChild(newCanvas);
     }
     return newCanvas;
+}
+
+// -------------------------------------------------------------
+// GRÁFICO 1: CARGA DETALHADA DO COMPUTADOR (CPU, RAM, DISCO, MÉDIA)
+// -------------------------------------------------------------
+function drawMaquinaChart(dataToDisplay, isDark) {
+    const labels = dataToDisplay.map(row => row.Timestamp.toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'}));
+    const dataCPU = dataToDisplay.map(row => row.Uso_CPU);
+    const dataRAM = dataToDisplay.map(row => row.Uso_RAM);
+    const dataDisco = dataToDisplay.map(row => row.Uso_Disco);
+    const dataCargaMedia = dataToDisplay.map(row => row.Carga_Computador);
+    
+    const color = isDark ? '#f0f0f0' : '#333';
+    const gridColor = isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)';
+    
+    // Escala dinâmica para Carga
+    const allUsage = dataCPU.concat(dataRAM).concat(dataDisco).concat(dataCargaMedia).filter(v => v > 0);
+    const maxUsage = d3.max(allUsage) || 10; 
+    const usageMaxScale = Math.max(50, Math.ceil(maxUsage / 10) * 10); 
+    
+    const canvasElement = createAndAppendCanvas('chart-saude-maquina', 'maquinaChartCanvas');
+    if (!canvasElement) return;
+    const ctxMaquina = canvasElement.getContext('2d');
+    
+    chartInstanceMaquina = new Chart(ctxMaquina, {
+        type: 'line', 
+        data: {
+            labels: labels,
+            datasets: [{
+                label: 'Uso de CPU (%)', data: dataCPU, borderColor: '#F44336', backgroundColor: 'rgba(244, 67, 54, 0.1)',
+                tension: 0.3, fill: true, order: 1, hidden: false
+            },
+            {
+                label: 'Uso de RAM (%)', data: dataRAM, borderColor: '#2196F3', backgroundColor: 'rgba(33, 150, 243, 0.1)',
+                tension: 0.3, fill: false, order: 2
+            },
+            {
+                label: 'Uso de Disco (%)', data: dataDisco, borderColor: '#FFC107', backgroundColor: 'rgba(255, 193, 7, 0.1)',
+                tension: 0.3, fill: false, order: 3
+            },
+            {
+                label: 'Carga Média (Score)', data: dataCargaMedia, borderColor: '#795548', backgroundColor: 'rgba(121, 85, 72, 0.1)',
+                tension: 0.3, fill: false, order: 4, borderDash: [5, 5]
+            }]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false, color: color, 
+            scales: {
+                x: { title: { display: true, text: 'Horário (HH:MM)', color: color }, grid: { color: gridColor }, ticks: { color: color } },
+                y: { min: 0, max: usageMaxScale, title: { display: true, text: 'Uso (%) / Carga (0-100)', color: color }, grid: { color: gridColor }, ticks: { color: color } }
+            },
+            plugins: { title: { display: true, text: `Carga Detalhada do Computador`, color: color }, legend: { labels: { color: color } } }
+        }
+    });
+}
+
+// -------------------------------------------------------------
+// GRÁFICO 2: TESTE DE VELOCIDADE (Download, Upload, Latência)
+// -------------------------------------------------------------
+function drawVelocidadeChart(dataToDisplay, isDark) {
+    const labels = dataToDisplay.map(row => row.Timestamp.toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'}));
+    const dataDownload = dataToDisplay.map(row => row.DownloadMbps);
+    const dataUpload = dataToDisplay.map(row => row.UploadMbps);
+    const dataLatency = dataToDisplay.map(row => row.Latencia_Speedtestms);
+    
+    const color = isDark ? '#f0f0f0' : '#333';
+    const gridColor = isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)';
+    
+    // Escala dinâmica para Mbps (múltiplo de 100)
+    let maxMbps = d3.max(dataDownload.concat(dataUpload)) || 50; 
+    const mbpsMaxScale = Math.max(100, Math.ceil(maxMbps / 100) * 100); 
+
+    // Escala dinâmica para Latência (múltiplo de 50)
+    let maxLatency = d3.max(dataLatency) || 50;
+    const latencyMaxScale = Math.max(50, Math.ceil(maxLatency / 50) * 50);
+
+    const canvasElement = createAndAppendCanvas('chart-velocidade', 'velocidadeChartCanvas');
+    if (!canvasElement) return;
+    const ctxVelocidade = canvasElement.getContext('2d');
+    
+    chartInstanceVelocidade = new Chart(ctxVelocidade, {
+        type: 'line', 
+        data: {
+            labels: labels,
+            datasets: [{
+                label: 'Download (Mbps)', data: dataDownload, yAxisID: 'y-mbps', borderColor: '#4CAF50', backgroundColor: 'rgba(76, 175, 80, 0.1)',
+                tension: 0.3, fill: false, order: 1, pointRadius: 4
+            },
+            {
+                label: 'Upload (Mbps)', data: dataUpload, yAxisID: 'y-mbps', borderColor: '#FF9800', backgroundColor: 'rgba(255, 152, 0, 0.1)',
+                tension: 0.3, fill: false, order: 2, pointRadius: 4
+            },
+            {
+                label: 'Latência (ms)', data: dataLatency, yAxisID: 'y-latency', borderColor: '#795548', backgroundColor: 'rgba(121, 85, 72, 0.1)',
+                tension: 0.3, fill: false, order: 3, borderDash: [5, 5], pointRadius: 3
+            }]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false, color: color, 
+            scales: {
+                x: { title: { display: true, text: 'Horário (HH:MM)', color: color }, grid: { color: gridColor }, ticks: { color: color } },
+                'y-mbps': { 
+                    type: 'linear', position: 'left', min: 0, max: mbpsMaxScale, 
+                    title: { display: true, text: 'Velocidade (Mbps)', color: color },
+                    grid: { color: gridColor }, ticks: { color: color }
+                },
+                'y-latency': { 
+                    type: 'linear', position: 'right', min: 0, max: latencyMaxScale, 
+                    title: { display: true, text: 'Latência (ms)', color: '#795548' },
+                    grid: { drawOnChartArea: false, color: gridColor }, ticks: { color: '#795548' }
+                }
+            },
+            plugins: { title: { display: true, text: `Teste de Velocidade (Download, Upload, Latência)`, color: color }, legend: { labels: { color: color } } }
+        }
+    });
 }
 
 
@@ -270,31 +385,24 @@ function drawMeetCharts(dataToDisplay, isDark) {
     let maxLatJitter = d3.max(dataJitter.concat(dataLatency)) || 10;
     const latencyMaxScale = Math.max(50, Math.ceil(maxLatJitter / 25) * 25); 
 
-    // CHAMA A NOVA FUNÇÃO DE CRIAÇÃO
     const canvasElement = createAndAppendCanvas('chart-saude-meet', 'meetChartCanvas');
     if (!canvasElement) return;
-
     const ctxMeet = canvasElement.getContext('2d');
+    
     chartInstanceMeet = new Chart(ctxMeet, {
         type: 'line', 
         data: {
             labels: labels,
             datasets: [{
-                label: 'Saúde Geral (Score 0-100)',
-                data: dataScores,
-                yAxisID: 'y-score', borderColor: '#4CAF50', backgroundColor: 'rgba(76, 175, 80, 0.1)',
+                label: 'Saúde Geral (Score 0-100)', yAxisID: 'y-score', data: dataScores, borderColor: '#4CAF50', backgroundColor: 'rgba(76, 175, 80, 0.1)',
                 tension: 0.3, pointRadius: 5, fill: true, order: 1
             },
             {
-                label: 'Jitter (Variação da Latência)',
-                data: dataJitter,
-                yAxisID: 'y-latency', borderColor: '#FFC107', backgroundColor: 'rgba(255, 193, 7, 0.1)',
+                label: 'Jitter (Variação da Latência)', yAxisID: 'y-latency', data: dataJitter, borderColor: '#FFC107', backgroundColor: 'rgba(255, 193, 7, 0.1)',
                 tension: 0.3, pointRadius: 3, fill: false, order: 2
             },
             {
-                label: 'Latência Média',
-                data: dataLatency,
-                yAxisID: 'y-latency', borderColor: '#2196F3', backgroundColor: 'rgba(33, 150, 243, 0.1)',
+                label: 'Latência Média', yAxisID: 'y-latency', data: dataLatency, borderColor: '#2196F3', backgroundColor: 'rgba(33, 150, 243, 0.1)',
                 tension: 0.3, pointRadius: 3, fill: false, borderDash: [5, 5], order: 3
             }]
         },
@@ -317,61 +425,7 @@ function drawMeetCharts(dataToDisplay, isDark) {
                     ticks: { color: color }
                 }
             },
-            plugins: { title: { display: true, text: `Saúde da Conexão e Jitter`, color: color }, legend: { labels: { color: color } } }
-        }
-    });
-}
-
-function drawMaquinaChart(dataToDisplay, isDark) {
-    const labels = dataToDisplay.map(row => row.Timestamp.toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'}));
-    const dataCPU = dataToDisplay.map(row => row.Uso_CPU);
-    const dataRAM = dataToDisplay.map(row => row.Uso_RAM);
-    const dataDisco = dataToDisplay.map(row => row.Uso_Disco);
-    
-    const color = isDark ? '#f0f0f0' : '#333';
-    const gridColor = isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)';
-    
-    const allUsage = dataCPU.concat(dataRAM).concat(dataDisco).filter(v => v > 0);
-    const maxUsage = d3.max(allUsage) || 10; 
-    const usageMaxScale = Math.max(50, Math.ceil(maxUsage / 10) * 10); 
-    
-    // CHAMA A NOVA FUNÇÃO DE CRIAÇÃO
-    const canvasElement = createAndAppendCanvas('chart-saude-maquina', 'maquinaChartCanvas');
-    if (!canvasElement) return;
-
-    const ctxMaquina = canvasElement.getContext('2d');
-    chartInstanceMaquina = new Chart(ctxMaquina, {
-        type: 'line', 
-        data: {
-            labels: labels,
-            datasets: [{
-                label: 'Uso de CPU (%)',
-                data: dataCPU,
-                borderColor: '#F44336', backgroundColor: 'rgba(244, 67, 54, 0.1)',
-                tension: 0.3, fill: true, order: 1, hidden: false
-            },
-            {
-                label: 'Uso de RAM (%)',
-                data: dataRAM,
-                borderColor: '#2196F3', backgroundColor: 'rgba(33, 150, 243, 0.1)',
-                tension: 0.3, fill: false, order: 2
-            },
-            {
-                label: 'Uso de Disco (%)',
-                data: dataDisco,
-                borderColor: '#FFC107', backgroundColor: 'rgba(255, 193, 7, 0.1)',
-                tension: 0.3, fill: false, order: 3
-            }]
-        },
-        options: {
-            responsive: true, maintainAspectRatio: false, color: color, 
-            scales: {
-                x: { title: { display: true, text: 'Horário (HH:MM)', color: color }, grid: { color: gridColor }, ticks: { color: color } },
-                y: { min: 0, 
-                     max: usageMaxScale, 
-                     title: { display: true, text: 'Uso (%)', color: color }, grid: { color: gridColor }, ticks: { color: color } }
-            },
-            plugins: { title: { display: true, text: `Carga da Máquina (CPU, RAM, Disco)`, color: color }, legend: { labels: { color: color } } }
+            plugins: { title: { display: true, text: `Teste de Qualidade do Meet (Saúde, Latência, Jitter)`, color: color }, legend: { labels: { color: color } } }
         }
     });
 }
@@ -398,7 +452,7 @@ function drawTracertChart(lastRecord, isDark) {
     }
     
     if (tracertData.length === 0) {
-        document.getElementById('chart-tracert').innerHTML = '<h3><i class="fas fa-route"></i> Detalhe da Rota (Latência por Hop - Último Registro Filtrado)</h3><p>Nenhum dado de rota (Tracert) válido para plotagem.</p>';
+        document.getElementById('chart-tracert').innerHTML = '<h3><i class="fas fa-route"></i> 4. Tracert do Meet (Rota por Salto)</h3><p>Nenhum dado de rota (Tracert) válido para plotagem.</p>';
         return;
     }
 
@@ -409,11 +463,10 @@ function drawTracertChart(lastRecord, isDark) {
     const maxLatTracert = d3.max(dataLatencies) || 50;
     const tracertMaxScale = Math.max(50, Math.ceil(maxLatTracert / 50) * 50);
 
-    // CHAMA A NOVA FUNÇÃO DE CRIAÇÃO
     const canvasElement = createAndAppendCanvas('chart-tracert', 'tracertChartCanvas');
     if (!canvasElement) return;
-
     const ctxTracert = canvasElement.getContext('2d');
+    
     chartInstanceTracert = new Chart(ctxTracert, {
         type: 'bar',
         data: {
@@ -442,7 +495,7 @@ function drawTracertChart(lastRecord, isDark) {
                 }
             },
             plugins: { 
-                title: { display: true, text: `Rota do Tracert (${lastRecord.Timestamp.toLocaleTimeString()})`, color: isDark ? '#f0f0f0' : '#333' }, 
+                title: { display: true, text: `Rota do Tracert`, color: isDark ? '#f0f0f0' : '#333' }, 
                 legend: { display: false } 
             }
         }
@@ -452,6 +505,7 @@ function drawTracertChart(lastRecord, isDark) {
 function handleChartClick(event) {
     if (typeof Chart === 'undefined') return; 
     
+    // Usa a instância do gráfico de Meet para detectar cliques
     const points = chartInstanceMeet.getElementsAtEventForMode(event, 'index', { intersect: true }, false);
 
     if (points.length === 0) {
@@ -472,6 +526,7 @@ function displayEventDetails(dataRow) {
     const detailsContainer = document.getElementById('event-details');
     const content = document.getElementById('event-content');
 
+    // Primary fields (REMOVIDO USUÁRIO)
     const primaryFields = [
         { label: "Timestamp", key: "Timestamp", format: d => d.toLocaleString('pt-BR') },
         { label: "Hostname", key: "Hostname" },
@@ -498,10 +553,10 @@ function displayEventDetails(dataRow) {
     let foundHops = false;
     for (let i = 1; i <= 30; i++) {
         const ipKey = `Hop_IP_${String(i).padStart(2, '0')}`;
-        const latencyKey = `Hop_LAT_${String(i).padStart(2, '0')}ms`;
+        const latKey = `Hop_LAT_${String(i).padStart(2, '0')}ms`;
 
         const ip = dataRow[ipKey];
-        const latency = dataRow[latencyKey];
+        const latency = dataRow[latKey];
         
         if (ip && ip.trim() !== '') {
             const latencyValue = latency > 0 ? `${latency.toFixed(2)} ms` : 'Perda/Timeout';
