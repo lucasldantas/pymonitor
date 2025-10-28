@@ -14,8 +14,23 @@
 
     <style>
         /* Variáveis de Cores */
-        :root { --bg-light: #f7f7f7; --bg-card: #ffffff; --text-dark: #2c3e50; --primary: #3498db; --shadow: 0 4px 8px rgba(0, 0, 0, 0.05); --border: #e0e0e0; }
-        body.dark-mode { --bg-light: #1e2124; --bg-card: #282b30; --text-dark: #ffffff; --primary: #7289da; --shadow: 0 4px 8px rgba(0, 0, 0, 0.3); --border: #444; }
+        :root {
+            --bg-light: #f7f7f7;
+            --bg-card: #ffffff;
+            --text-dark: #2c3e50;
+            --primary: #3498db; /* Azul moderno */
+            --shadow: 0 4px 8px rgba(0, 0, 0, 0.05);
+            --border: #e0e0e0;
+        }
+
+        body.dark-mode {
+            --bg-light: #1e2124;
+            --bg-card: #282b30;
+            --text-dark: #ffffff;
+            --primary: #7289da; /* Roxo/Azul escuro */
+            --shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+            --border: #444;
+        }
 
         /* Estilos Gerais e Reset */
         body { font-family: 'Roboto', sans-serif; margin: 0; background-color: var(--bg-light); color: var(--text-dark); transition: background-color 0.3s, color 0.3s; }
@@ -24,17 +39,55 @@
         .container { max-width: 1300px; margin: 20px auto; padding: 0 20px; }
         
         /* Controles e Cards */
-        .controls, .chart-container, #event-details { background-color: var(--bg-card); padding: 25px; border-radius: 12px; box-shadow: var(--shadow); margin-bottom: 25px; }
-        .chart-container h3 { color: var(--primary); border-bottom: 2px solid var(--border); padding-bottom: 10px; margin-bottom: 20px; }
+        .controls, .chart-container, #event-details { 
+            background-color: var(--bg-card); 
+            padding: 25px; 
+            border-radius: 12px; 
+            box-shadow: var(--shadow); 
+            margin-bottom: 25px; 
+        }
+        .chart-container h3 { 
+            margin-top: 0; 
+            color: var(--primary); 
+            border-bottom: 2px solid var(--border); 
+            padding-bottom: 10px; 
+            margin-bottom: 20px;
+        }
 
         /* Filtros */
         .filter-group { display: flex; align-items: center; flex-wrap: wrap; margin-bottom: 15px; }
         .filter-group label { margin-right: 15px; font-weight: 500; min-width: 150px; }
-        .filter-group input, .filter-group select { padding: 10px; border: 1px solid var(--border); border-radius: 8px; margin-right: 10px; background-color: transparent; color: var(--text-dark); transition: border-color 0.3s; }
-        .controls button { padding: 10px 20px; background-color: var(--primary); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; transition: background-color 0.3s; }
+        .filter-group input, .filter-group select { 
+            padding: 10px; 
+            border: 1px solid var(--border); 
+            border-radius: 8px; 
+            margin-right: 10px; 
+            background-color: transparent; 
+            color: var(--text-dark);
+            transition: border-color 0.3s;
+        }
+        .filter-group input:focus, .filter-group select:focus { border-color: var(--primary); outline: none; }
+        .controls button { 
+            padding: 10px 20px; 
+            background-color: var(--primary); 
+            color: white; 
+            border: none; 
+            border-radius: 8px; 
+            cursor: pointer; 
+            font-weight: bold; 
+            transition: background-color 0.3s;
+        }
+        .controls button:hover { background-color: #2980b9; }
+
+        /* Status e Tema */
+        #statusMessage { margin-top: 10px; font-weight: 700; color: #e74c3c; }
+        .dark-mode #statusMessage { color: #f39c12; }
+        .theme-toggle-container { margin-left: auto; display: flex; align-items: center; }
 
         /* Detalhes do Evento */
         #event-details { display: none; border-left: 5px solid #27ae60; }
+        #event-details h4 { color: #27ae60; }
+        #event-content p { margin: 5px 0; font-size: 0.95em; }
     </style>
 </head>
 <body>
@@ -80,7 +133,7 @@
         
         <div id="event-details">
             <h2 style="margin-top: 0;">Detalhes do Evento Selecionado</h2>
-            <div id="event-content"></div>
+            <div id="event-content">Clique em um ponto no gráfico de "Saúde Geral" para ver os detalhes do Tracert.</div>
         </div>
 
         <div class="chart-container" id="chart-saude-maquina">
