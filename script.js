@@ -32,17 +32,17 @@ function getFileName() {
     return `py_monitor_${date}.csv`;
 }
 
-// NOVO: Função para checar a validade de um objeto Date
 function isDateValid(date) {
     return date instanceof Date && !isNaN(date.getTime());
 }
 
-// CORREÇÃO FINAL CRÍTICA: Simplesmente usa o construtor Date() para ISO 8601 completo (gerado pelo Python)
+// CORREÇÃO FINAL CRÍTICA: LÊ ISO 8601 COMPLETO
 function parseTimestamp(raw) {
     if (!raw) return null;
     const s = String(raw).trim();
     
-    // O construtor JavaScript Date() lida com o ISO 8601 completo nativamente.
+    // O construtor JavaScript Date() lida com o ISO 8601 completo (gerado pelo Python) nativamente,
+    // ajustando automaticamente para o fuso horário local do navegador.
     const d = new Date(s); 
     
     return isDateValid(d) ? d : null; 
@@ -59,6 +59,7 @@ function typeConverter(row) {
 
     const newRow = {};
     for (const key in row) {
+        // Sanitiza a chave: remove (), %, e espaços
         const cleanKey = key.replace(/[\(\)%]/g, '').replace(/ /g, '_'); 
         newRow[cleanKey] = row[key];
     }
@@ -205,9 +206,17 @@ function handleSearchInput(input) {
     // Pula os elementos de controle (Busca e "Todas as Máquinas")
     const options = menuContainer.querySelectorAll('.filter-option'); 
     
-    // Começa do índice 2 para pegar a primeira máquina (0=Busca, 1=Todas, HR)
+    // Começa do índice 3 para pegar a primeira máquina (0=Input/Search, 1=HR, 2=Todas, 3=HR, 4=Primeira Máquina)
+    // Se você usa o HTML do bloco anterior, as opções de máquina começam no índice 4.
+    
+    // Vamos iterar a partir do segundo HR (índice 3), pulando o primeiro item para evitar erro.
+    
     for (let i = 3; i < options.length; i++) { 
         const option = options[i];
+        
+        // Verifica se é um divisor (HR) ou a opção de busca/todas, e pula.
+        if (!option.querySelector('input[type="checkbox"]')) continue; 
+        
         const label = option.querySelector('label');
         if (label) {
             const textValue = label.textContent || label.innerText;
@@ -273,6 +282,7 @@ function getSelectedHostnames() {
     const menu = document.getElementById('hostnameDropdownMenu');
     if (!menu) return ['all'];
     
+    // Seleciona todos os checkboxes, exceto o de busca
     const checkboxes = menu.querySelectorAll('input[type="checkbox"]:checked');
     const selected = Array.from(checkboxes).map(cb => cb.value);
     
@@ -377,7 +387,6 @@ function filterChart() {
         if (!isDateValid(ts)) return false; 
         
         // Geração da string HH:MM para o filtro de horário
-        // Usamos getHours/getMinutes para garantir que estamos olhando a hora LOCAL
         const h = String(ts.getHours()).padStart(2, '0');
         const m = String(ts.getMinutes()).padStart(2, '0');
         const hhmm = `${h}:${m}`;
@@ -437,7 +446,6 @@ function getChartContext(canvasId) {
 // GRÁFICO 1: CARGA DETALHADA DO COMPUTADOR (MAX: 100 FIXO)
 // -------------------------------------------------------------
 function drawMaquinaChart(rows, isDark) {
-    // CORREÇÃO FINAL: Usar getHours/Minutes para consistência
     const labels = rows.map(r => (r.Timestamp && !isNaN(r.Timestamp)) 
       ? `${String(r.Timestamp.getHours()).padStart(2, '0')}:${String(r.Timestamp.getMinutes()).padStart(2, '0')}`
       : ''
