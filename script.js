@@ -33,26 +33,39 @@ function typeConverter(row) {
 
     const newRow = {};
     for (const key in row) {
+        // remove (), %, espaços e ponto único para facilitar acesso
         const cleanKey = key.replace(/[\(\)%]/g, '').replace(/ /g, '_').replace('.', ''); 
         newRow[cleanKey] = row[key];
     }
     
+    // Tipos básicos
     newRow.Timestamp = new Date(newRow.Timestamp);
-    
-    // Tipos e Conversão de Nome
     newRow.Uso_CPU = parseFloat(newRow.Uso_CPU) || 0;
     newRow.Uso_RAM = parseFloat(newRow.Uso_RAM) || 0;
     newRow.Uso_Disco = parseFloat(newRow.Uso_Disco) || 0;
     newRow.Carga_Computador = parseInt(newRow.Carga_Computador) || 0;
+
     newRow.DownloadMbps = parseFloat(newRow.DownloadMbps) || 0;
     newRow.UploadMbps = parseFloat(newRow.UploadMbps) || 0;
     newRow.Latencia_Speedtestms = parseFloat(newRow.Latencia_Speedtestms) || 0;
-    newRow.Saude_Meet0100 = parseInt(newRow.Saude_Meet0100) || 0;
-    newRow.Latencia_Meet_Mediaps = parseFloat(newRow.Latencia_Meet_Media_ms) || 0; 
+
+    // >>> CORREÇÃO CRÍTICA APLICADA AQUI: Busca a chave correta para o Score do Meet
+    // Pesquisa a chave que contém 'saude', 'meet' e '100' (ex: Saude_Meet_0-100)
+    const meetScoreKey = Object.keys(newRow).find(key => key.toLowerCase().includes('saude') && key.toLowerCase().includes('meet') && key.includes('100'));
+    
+    // Atribui o valor encontrado (90 ou 95) à chave esperada pelo gráfico (Saude_Meet0100)
+    newRow.Saude_Meet0100 = meetScoreKey ? parseInt(newRow[meetScoreKey]) || 0 : 0;
+    // FIM DA CORREÇÃO
+
+    // Tenta diferentes chaves para latência média (compatibilidade com CSVs antigos)
+    const latMedia =
+        parseFloat(newRow.Latencia_Meet_Media_ms ?? newRow.Latencia_Meet_Mediaps ?? newRow.Latencia_Meet_Media) || 0;
+    newRow.Latencia_Meet_Media_ms = latMedia;
+
     newRow.Jitter_Meetms = parseFloat(newRow.Jitter_Meetms) || 0;
     newRow.Perda_Meet = parseFloat(newRow.Perda_Meet) || 0;
 
-    // Hops
+    // hops
     for (let i = 1; i <= MAX_TTL; i++) {
         const latKey = `Hop_LAT_${String(i).padStart(2, '0')}ms`;
         const ipKey  = `Hop_IP_${String(i).padStart(2, '0')}`;
@@ -282,7 +295,7 @@ function drawMaquinaChart(rows, isDark) {
     const color = isDark ? '#f0f0f0' : '#333';
     const grid = isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)';
 
-    const maxUsage = 100; // FIXO em 100, conforme solicitação.
+    const maxUsage = 100; // FIXO em 100.
 
     const ctx = getChartContext('maquinaChartCanvas');
     if (!ctx) return;
@@ -353,7 +366,7 @@ function drawVelocidadeChart(rows, isDark) {
 }
 
 // -------------------------------------------------------------
-// GRÁFICO 3: QUALIDADE DO MEET (JÁ ESTAVA FIXO EM MAX: 100)
+// GRÁFICO 3: QUALIDADE DO MEET (SCORE MAX: 100 FIXO)
 // -------------------------------------------------------------
 function drawMeetCharts(rows, isDark) {
     const labels = rows.map(r => r.Timestamp ? r.Timestamp.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '');
