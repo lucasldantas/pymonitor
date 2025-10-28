@@ -26,8 +26,17 @@
         .chart-container { position: relative; height: 420px; background: var(--bg-card); padding: 25px; border-radius: 12px; box-shadow: var(--shadow); margin-bottom: 25px; }
         
         /* Filtros */
-        .filter-group { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 15px; }
-        .filter-group label { font-weight: 500; min-width: 120px; }
+        .filter-group { 
+            display: flex; 
+            align-items: center; 
+            flex-wrap: wrap; /* Permite que os itens quebrem para a próxima linha em telas menores */
+            gap: 10px; 
+            margin-bottom: 15px; 
+        }
+        .filter-group label { 
+            font-weight: 500; 
+            min-width: 120px; /* Garante que os labels tenham espaço */
+        }
         
         /* ESTILO DOS INPUTS GERAIS E BOTÕES */
         .filter-group input:not([type="checkbox"]), .filter-group select, .controls button.btn-filter-action, .dropdown-toggle {
@@ -50,10 +59,12 @@
         #event-details { display: none; border-left: 5px solid #27ae60; background: var(--bg-card); padding: 25px; border-radius: 12px; box-shadow: var(--shadow); margin-bottom: 25px; }
 
 
-        /* --- CSS PARA SELEÇÃO MÚLTIPLA (NOVO) --- */
+        /* --- CSS PARA SELEÇÃO MÚLTIPLA (NOVO - AQUI ESTÃO AS PRINCIPAIS MUDANÇAS) --- */
         .hostname-control {
             position: relative;
-            min-width: 200px;
+            min-width: 200px; /* Aumenta a largura mínima do container do dropdown */
+            flex-grow: 1; /* Permite que o dropdown ocupe o espaço disponível */
+            max-width: 300px; /* Define uma largura máxima razoável */
         }
         .dropdown-toggle {
             display: flex;
@@ -62,13 +73,18 @@
             width: 100%;
             cursor: pointer;
             text-align: left;
+            /* Garante que o texto não quebre para múltiplas linhas no botão */
+            white-space: nowrap; 
+            overflow: hidden;
+            text-overflow: ellipsis; /* Adiciona "..." se o texto for muito longo */
         }
         .dropdown-menu {
             position: absolute;
             z-index: 1000;
             top: 100%;
             left: 0;
-            right: 0;
+            /* Agora o menu segue a largura do .hostname-control */
+            width: 100%; 
             background: var(--bg-card);
             border: 1px solid var(--border);
             border-top: none;
@@ -95,6 +111,10 @@
             min-width: auto;
             font-weight: 400;
             margin-left: 10px;
+            flex-grow: 1; /* Permite que o label ocupe o espaço */
+            white-space: nowrap; /* Evita que o nome da máquina quebre */
+            overflow: hidden;
+            text-overflow: ellipsis; /* Adiciona "..." se o nome for muito longo */
         }
         .filter-option:hover {
             background-color: rgba(var(--primary-rgb, 52, 152, 219), 0.1);
@@ -109,6 +129,7 @@
         }
         .dropdown-arrow {
             transition: transform 0.3s;
+            flex-shrink: 0; /* Impede que a seta diminua */
         }
         .dropdown-toggle[aria-expanded="true"] .dropdown-arrow {
             transform: rotate(180deg);
