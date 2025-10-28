@@ -7,6 +7,7 @@
     
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
 
     <style>
         /* Estilos gerais */
@@ -76,20 +77,17 @@
             <div id="event-content">Clique em um ponto no gráfico de "Saúde Geral" para ver os detalhes do Tracert.</div>
         </div>
 
-        <div class="chart-container">
+        <div class="chart-container" id="chart-saude-meet">
             <h3>Gráfico 1 & 3: Saúde Geral, Latência Média e Jitter (Meet)</h3>
-            <canvas id="meetChartCanvas" style="height: 350px;"></canvas>
-        </div>
+            </div>
 
-        <div class="chart-container">
+        <div class="chart-container" id="chart-saude-maquina">
             <h3>Gráfico 2: Carga da Máquina (CPU, RAM, Disco)</h3>
-            <canvas id="maquinaChartCanvas" style="height: 350px;"></canvas>
-        </div>
+            </div>
 
-        <div class="chart-container">
+        <div class="chart-container" id="chart-tracert">
             <h3>Gráfico 4: Detalhe da Rota (Latência por Hop - Último Registro Filtrado)</h3>
-            <canvas id="tracertChartCanvas" style="height: 450px;"></canvas>
-        </div>
+            </div>
 
     </div>
 
