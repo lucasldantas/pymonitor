@@ -32,30 +32,20 @@ function getFileName() {
     return `py_monitor_${date}.csv`;
 }
 
+// NOVO: Função para checar a validade de um objeto Date
 function isDateValid(date) {
     return date instanceof Date && !isNaN(date.getTime());
 }
 
+// CORREÇÃO FINAL CRÍTICA: Simplesmente usa o construtor Date() para ISO 8601 completo (gerado pelo Python)
 function parseTimestamp(raw) {
     if (!raw) return null;
     const s = String(raw).trim();
     
-    if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(s)) {
-        // CORREÇÃO DE FUZO HORÁRIO: Forçar o parse a ignorar o offset e usar o local
-        // Se a data é '2025-10-28 14:10:24', o construtor Date(Y, M-1, D, h, m, s) 
-        // é o mais seguro para usar o fuso horário local.
-        
-        const [datePart, timePart] = s.split(' ');
-        const [Y, M, D] = datePart.split('-');
-        const [h, m, sec] = timePart.split(':');
-        
-        // Month no JavaScript é 0-indexed (M-1)
-        const d_comp = new Date(Y, M - 1, D, h, m, sec);
-        if (isDateValid(d_comp)) return d_comp;
-    }
-
-    const d = new Date(s);
-    return isDateValid(d) ? d : null;
+    // O construtor JavaScript Date() lida com o ISO 8601 completo nativamente.
+    const d = new Date(s); 
+    
+    return isDateValid(d) ? d : null; 
 }
 
 const safeParseFloat = (value) => {
@@ -78,7 +68,7 @@ function typeConverter(row) {
     newRow.Hostname = hostnameValue; 
     
     newRow.Timestamp = parseTimestamp(newRow.Timestamp);
-    if (!newRow.Timestamp) return null; 
+    if (!newRow.Timestamp) return null; // CRÍTICO: Descarta linhas com data inválida
     
     // Conversão Numérica
     newRow.Uso_CPU = safeParseFloat(newRow.Uso_CPU);
@@ -212,11 +202,11 @@ function handleSearchInput(input) {
     const filter = input.value.toUpperCase();
     const menuContainer = document.getElementById('hostnameDropdownMenu');
     
-    // Pula os primeiros elementos (Busca, HR, Todas as Máquinas, HR) para focar nas opções individuais
+    // Pula os elementos de controle (Busca e "Todas as Máquinas")
     const options = menuContainer.querySelectorAll('.filter-option'); 
     
-    // Começa do índice 2 para pegar a primeira máquina (index 0 = Busca, 1 = Todas)
-    for (let i = 2; i < options.length; i++) { 
+    // Começa do índice 2 para pegar a primeira máquina (0=Busca, 1=Todas, HR)
+    for (let i = 3; i < options.length; i++) { 
         const option = options[i];
         const label = option.querySelector('label');
         if (label) {
@@ -244,8 +234,8 @@ function populateHostnames(data) {
     // --- 0. Campo de Busca ---
     htmlContent.push(`
         <div class="filter-option" style="padding-bottom: 5px;">
-             <input type="text" id="hostnameSearchInput" placeholder="Pesquisar hostname..." 
-                   style="width: 100%; box-sizing: border-box; padding: 5px 8px; border-radius: 4px;" 
+            <input type="text" id="hostnameSearchInput" placeholder="Pesquisar hostname..." 
+                   style="width: 100%; box-sizing: border-box; padding: 5px 8px; border-radius: 4px; border: 1px solid var(--border);" 
                    onkeyup="handleSearchInput(this)">
         </div>
         <hr/>
@@ -386,8 +376,12 @@ function filterChart() {
         
         if (!isDateValid(ts)) return false; 
         
-        const hhmm = ts.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', hour12: false });
-        
+        // Geração da string HH:MM para o filtro de horário
+        // Usamos getHours/getMinutes para garantir que estamos olhando a hora LOCAL
+        const h = String(ts.getHours()).padStart(2, '0');
+        const m = String(ts.getMinutes()).padStart(2, '0');
+        const hhmm = `${h}:${m}`;
+
         const hostOk = (selectedHosts.includes('all') || selectedHosts.includes(row.Hostname));
         
         const timeOk = (hhmm >= startTimeStr && hhmm <= endTimeStr);
@@ -443,8 +437,9 @@ function getChartContext(canvasId) {
 // GRÁFICO 1: CARGA DETALHADA DO COMPUTADOR (MAX: 100 FIXO)
 // -------------------------------------------------------------
 function drawMaquinaChart(rows, isDark) {
+    // CORREÇÃO FINAL: Usar getHours/Minutes para consistência
     const labels = rows.map(r => (r.Timestamp && !isNaN(r.Timestamp)) 
-      ? r.Timestamp.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', hour12: false })
+      ? `${String(r.Timestamp.getHours()).padStart(2, '0')}:${String(r.Timestamp.getMinutes()).padStart(2, '0')}`
       : ''
     );
     const dataCPU = rows.map(r => r.Uso_CPU);
@@ -487,7 +482,7 @@ function drawMaquinaChart(rows, isDark) {
 // -------------------------------------------------------------
 function drawVelocidadeChart(rows, isDark) {
     const labels = rows.map(r => (r.Timestamp && !isNaN(r.Timestamp)) 
-      ? r.Timestamp.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', hour12: false })
+      ? `${String(r.Timestamp.getHours()).padStart(2, '0')}:${String(r.Timestamp.getMinutes()).padStart(2, '0')}`
       : ''
     );
     const dataDownload = rows.map(r => r.DownloadMbps);
@@ -532,7 +527,7 @@ function drawVelocidadeChart(rows, isDark) {
 // -------------------------------------------------------------
 function drawMeetCharts(rows, isDark) {
     const labels = rows.map(r => (r.Timestamp && !isNaN(r.Timestamp)) 
-      ? r.Timestamp.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', hour12: false })
+      ? `${String(r.Timestamp.getHours()).padStart(2, '0')}:${String(r.Timestamp.getMinutes()).padStart(2, '0')}`
       : ''
     );
     const dataScore = rows.map(r => r.Saude_Meet0100);
