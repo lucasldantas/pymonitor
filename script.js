@@ -6,8 +6,8 @@ let chartInstanceTracert = null;
 let currentDataToDisplay = []; 
 const AUTO_UPDATE_INTERVAL = 10 * 60 * 1000; // 10 minutos em milissegundos
 let autoUpdateTimer = null; 
-const BASE_CSV_URL = './'; 
-const MAX_TTL = 30; // Limite fixo de hops para o CSV
+const BASE_CSV_URL = './'; // Caminho relativo para o GitHub Pages
+const MAX_TTL = 30; // Limite fixo de hops para o CSV (Deve ser igual ao Python)
 
 // --------------------------------------------------------------------------
 // Funções Auxiliares
@@ -93,7 +93,7 @@ function startAutoUpdate() {
 }
 
 // --------------------------------------------------------------------------
-// Lógica de Carregamento e PapaParse (CORREÇÃO DE INSTABILIDADE)
+// Lógica de Carregamento e PapaParse (ESTABILIDADE GARANTIDA)
 // --------------------------------------------------------------------------
 
 function initMonitor() {
@@ -117,6 +117,7 @@ function initMonitor() {
         skipEmptyLines: true,
         worker: false, // Desabilita worker para evitar falhas em caminhos relativos
         downloadRequestHeaders: {
+            // Força a requisição a ignorar o cache e buscar a versão mais recente
             'Cache-Control': 'no-cache', 
             'Pragma': 'no-cache',
             'If-Modified-Since': 'Sat, 01 Jan 2000 00:00:00 GMT'
@@ -297,7 +298,6 @@ function drawMaquinaChart(dataToDisplay, isDark) {
     const color = isDark ? '#f0f0f0' : '#333';
     const gridColor = isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)';
     
-    // NOVO: Cálculo da Escala Dinâmica (maxUsage)
     const allUsage = dataCPU.concat(dataRAM).concat(dataDisco).filter(v => v > 0);
     const maxUsage = d3.max(allUsage) || 10; 
     const usageMaxScale = Math.max(50, Math.ceil(maxUsage / 10) * 10); 
@@ -369,7 +369,6 @@ function drawTracertChart(lastRecord, isDark) {
     const dataLatencies = tracertData.map(d => d.latency);
     const dataIps = tracertData.map(d => d.ip);
     
-    // NOVO: Cálculo da Escala Dinâmica
     const maxLatTracert = d3.max(dataLatencies) || 50;
     const tracertMaxScale = Math.max(50, Math.ceil(maxLatTracert / 50) * 50);
 
@@ -396,7 +395,7 @@ function drawTracertChart(lastRecord, isDark) {
                 y: { 
                     title: { display: true, text: 'Latência (ms)', color: isDark ? '#f0f0f0' : '#333' }, 
                     grid: { color: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)' }, 
-                    max: tracertMaxScale, // Máximo dinâmico
+                    max: tracertMaxScale, 
                     min: 0,
                     ticks: { color: isDark ? '#f0f0f0' : '#333' } 
                 }
@@ -491,17 +490,14 @@ document.addEventListener('DOMContentLoaded', () => {
          document.getElementById('statusMessage').textContent = 'AVISO: Chart.js não carregado. Gráficos desabilitados.';
     }
     
-    // 1. Aplica o tema (isso resolve o erro de inicialização ao ser chamado antes de initMonitor)
     applySavedTheme(); 
     
-    // 2. Define a data e adiciona listeners de filtros
     document.getElementById('dateSelect').value = getCurrentDateFormatted();
     
     document.getElementById('dateSelect').addEventListener('change', initMonitor);
     document.getElementById('applyFiltersButton').addEventListener('click', filterChart);
     document.getElementById('hostnameFilter').addEventListener('change', filterChart); 
     
-    // 3. Inicia o monitor (que carrega o CSV)
     initMonitor(); 
     startAutoUpdate();
 });
