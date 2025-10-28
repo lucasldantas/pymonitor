@@ -19,6 +19,7 @@ let availableHostnames = [];
 // ========= Utils =========
 function getCurrentDateFormatted() {
     const today = new Date();
+    // Retorna DD-MM-YY
     const dd = String(today.getDate()).padStart(2, '0');
     const mm = String(today.getMonth() + 1).padStart(2, '0');
     const yy = String(today.getFullYear()).slice(-2);
@@ -26,6 +27,7 @@ function getCurrentDateFormatted() {
 }
 
 function getFileName() {
+    // Mantém o valor bruto do input (DD-MM-YY)
     const date = document.getElementById('dateSelect').value; 
     return `py_monitor_${date}.csv`;
 }
@@ -39,14 +41,15 @@ function parseTimestamp(raw) {
     const s = String(raw).trim();
     
     if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(s)) {
-        let local_s = s.replace(/-/g, '/');
-        const d_local = new Date(local_s);
-        if (isDateValid(d_local)) return d_local;
-
+        // CORREÇÃO DE FUZO HORÁRIO: Forçar o parse a ignorar o offset e usar o local
+        // Se a data é '2025-10-28 14:10:24', o construtor Date(Y, M-1, D, h, m, s) 
+        // é o mais seguro para usar o fuso horário local.
+        
         const [datePart, timePart] = s.split(' ');
         const [Y, M, D] = datePart.split('-');
         const [h, m, sec] = timePart.split(':');
         
+        // Month no JavaScript é 0-indexed (M-1)
         const d_comp = new Date(Y, M - 1, D, h, m, sec);
         if (isDateValid(d_comp)) return d_comp;
     }
@@ -200,28 +203,26 @@ function toggleDropdown() {
         menu.classList.add('show');
         toggleButton.setAttribute('aria-expanded', 'true');
         
-        // Foca no campo de busca ao abrir o dropdown
         const searchInput = document.getElementById('hostnameSearchInput');
         if (searchInput) searchInput.focus();
     }
 }
 
-// NOVO: Função para filtrar a lista de checkboxes
 function handleSearchInput(input) {
     const filter = input.value.toUpperCase();
     const menuContainer = document.getElementById('hostnameDropdownMenu');
     
-    // Pula o primeiro elemento que é o input/seção de busca
+    // Pula os primeiros elementos (Busca, HR, Todas as Máquinas, HR) para focar nas opções individuais
     const options = menuContainer.querySelectorAll('.filter-option'); 
     
-    // Começa do índice 1 (após a linha de busca e HR) para esconder/mostrar apenas as máquinas
-    for (let i = 2; i < options.length; i++) {
+    // Começa do índice 2 para pegar a primeira máquina (index 0 = Busca, 1 = Todas)
+    for (let i = 2; i < options.length; i++) { 
         const option = options[i];
         const label = option.querySelector('label');
         if (label) {
             const textValue = label.textContent || label.innerText;
             if (textValue.toUpperCase().indexOf(filter) > -1) {
-                option.style.display = "";
+                option.style.display = "flex";
             } else {
                 option.style.display = "none";
             }
@@ -238,14 +239,13 @@ function populateHostnames(data) {
         selectedHostnames = ['all']; 
     }
     
-    // Usamos um array para construir o HTML para melhor desempenho
     let htmlContent = [];
     
-    // --- 0. Campo de Busca (ADICIONADO) ---
+    // --- 0. Campo de Busca ---
     htmlContent.push(`
-        <div style="padding: 0 10px 5px 10px;">
-            <input type="text" id="hostnameSearchInput" placeholder="Pesquisar hostname..." 
-                   style="width: 100%; box-sizing: border-box;" 
+        <div class="filter-option" style="padding-bottom: 5px;">
+             <input type="text" id="hostnameSearchInput" placeholder="Pesquisar hostname..." 
+                   style="width: 100%; box-sizing: border-box; padding: 5px 8px; border-radius: 4px;" 
                    onkeyup="handleSearchInput(this)">
         </div>
         <hr/>
