@@ -1,111 +1,144 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Monitoramento de Diagnóstico de Rede e Máquina</title>
-    
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-    <script src="https://d3js.org/d3.v7.min.js"></script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Monitoramento de Diagnóstico de Rede e Máquina</title>
 
-    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;700&display=swap" rel="stylesheet">
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" rel="stylesheet">
+  <!-- Libs -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="https://d3js.org/d3.v7.min.js"></script>
 
-    <style>
-        /* Variáveis de Cores */
-        :root { --bg-light: #f7f7f7; --bg-card: #ffffff; --text-dark: #2c3e50; --primary: #3498db; --shadow: 0 4px 8px rgba(0, 0, 0, 0.05); --border: #e0e0e0; }
-        body.dark-mode { --bg-light: #1e2124; --bg-card: #282b30; --text-dark: #ffffff; --primary: #7289da; --shadow: 0 4px 8px rgba(0, 0, 0, 0.3); --border: #444; }
+  <!-- Fonts & Icons -->
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;700&display=swap" rel="stylesheet"/>
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" rel="stylesheet"/>
 
-        /* Estilos Gerais e Reset */
-        body { font-family: 'Roboto', sans-serif; margin: 0; background-color: var(--bg-light); color: var(--text-dark); transition: background-color 0.3s, color 0.3s; }
-        header { background-color: var(--primary); color: white; padding: 25px; text-align: center; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2); }
-        .container { max-width: 1300px; margin: 20px auto; padding: 0 20px; }
-        
-        /* Controles e Cards */
-        .controls, .chart-container, #event-details { background-color: var(--bg-card); padding: 25px; border-radius: 12px; box-shadow: var(--shadow); margin-bottom: 25px; }
-        .chart-container h3 { color: var(--primary); border-bottom: 2px solid var(--border); padding-bottom: 10px; margin-bottom: 20px; }
+  <style>
+    /* Variáveis de Cores */
+    :root {
+      --bg-light: #f7f7f7; --bg-card: #ffffff; --text-dark: #2c3e50;
+      --primary: #3498db; --shadow: 0 4px 8px rgba(0,0,0,0.05); --border: #e0e0e0;
+    }
+    body.dark-mode {
+      --bg-light: #1e2124; --bg-card: #282b30; --text-dark: #ffffff;
+      --primary: #7289da; --shadow: 0 4px 8px rgba(0,0,0,0.3); --border: #444;
+    }
 
-        /* Filtros */
-        .filter-group { display: flex; align-items: center; flex-wrap: wrap; margin-bottom: 15px; }
-        .filter-group label { margin-right: 15px; font-weight: 500; min-width: 150px; }
-        .filter-group input, .filter-group select { padding: 10px; border: 1px solid var(--border); border-radius: 8px; margin-right: 10px; background-color: transparent; color: var(--text-dark); transition: border-color 0.3s; }
-        .controls button { padding: 10px 20px; background-color: var(--primary); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; transition: background-color 0.3s; }
-        
-        /* SOLUÇÃO DE TAMANHO FIXO (CRÍTICA) */
-        .chart-container { position: relative; }
-        .chart-container canvas { min-height: 350px; max-height: 500px; width: 100% !important; height: 100% !important; }
-        
-        /* Estilo Adicional */
-        #statusMessage { margin-top: 10px; font-weight: 700; color: #e74c3c; }
-        .theme-toggle-container { margin-left: auto; display: flex; align-items: center; }
-        #event-details { display: none; border-left: 5px solid #27ae60; }
-    </style>
+    /* Layout */
+    body {
+      font-family: 'Roboto', sans-serif; margin: 0;
+      background: var(--bg-light); color: var(--text-dark);
+      transition: background-color .3s, color .3s;
+    }
+    header {
+      background: var(--primary); color: #fff; padding: 25px; text-align: center;
+      box-shadow: 0 2px 10px rgba(0,0,0,.2);
+    }
+    .container { max-width: 1300px; margin: 20px auto; padding: 0 20px; }
+
+    /* Cards & Controles */
+    .controls, .chart-container, #event-details {
+      background: var(--bg-card); padding: 25px; border-radius: 12px;
+      box-shadow: var(--shadow); margin-bottom: 25px;
+    }
+    .chart-container h3 {
+      color: var(--primary); border-bottom: 2px solid var(--border);
+      padding-bottom: 10px; margin: 0 0 20px 0;
+    }
+    .filter-group { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 15px; }
+    .filter-group label { font-weight: 500; min-width: 150px; }
+    .filter-group input, .filter-group select {
+      padding: 10px; border: 1px solid var(--border); border-radius: 8px;
+      background: transparent; color: var(--text-dark);
+    }
+    .controls button {
+      padding: 10px 20px; background: var(--primary); color: #fff;
+      border: 0; border-radius: 8px; cursor: pointer; font-weight: 700;
+    }
+
+    /* ✅ Altura fixa por contêiner (para evitar crescimento infinito) */
+    .chart-container { position: relative; height: 420px; }
+    #chart-tracert { height: 380px; }
+
+    .chart-container canvas {
+      display: block;
+      width: 100% !important;
+      height: 100% !important; /* agora funciona porque o pai tem altura fixa */
+    }
+
+    #statusMessage { margin-top: 10px; font-weight: 700; color: #e74c3c; }
+    .theme-toggle-container { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+    #event-details { display: none; border-left: 5px solid #27ae60; }
+  </style>
 </head>
 <body>
+  <header>
+    <h1><i class="fas fa-chart-line"></i> Monitoramento de QoS</h1>
+    <p>Análise de Carga da Máquina e Saúde da Rede para Google Meet</p>
+  </header>
 
-    <header>
-        <h1><i class="fas fa-chart-line"></i> Monitoramento de QoS</h1>
-        <p>Análise de Carga da Máquina e Saúde da Rede para Google Meet</p>
-    </header>
+  <div class="container">
 
-    <div class="container">
-        
-        <div class="controls">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-                <h2>Filtros e Dados</h2>
-                <div class="theme-toggle-container">
-                    <label for="checkbox" style="font-weight: normal; margin-right: 10px;">Tema Escuro</label>
-                    <input type="checkbox" id="checkbox">
-                </div>
-            </div>
-            
-            <div id="statusMessage">Aguardando inicialização...</div>
-            
-            <div class="filter-group">
-                <label for="dateSelect">1. Data do Arquivo (.csv):</label>
-                <input type="text" id="dateSelect" placeholder="DD-MM-YY" value="27-10-25" style="width: 80px; text-align: center;">
-                <button onclick="initMonitor()"><i class="fas fa-search"></i> Buscar Data</button>
-            </div>
-            
-            <div class="filter-group">
-                <label for="hostnameFilter">2. Máquina (Hostname):</label>
-                <select id="hostnameFilter" style="min-width: 150px;">
-                    <option value="all">Todas as Máquinas</option>
-                </select>
-
-                <label for="startTime">3. Intervalo de Horário:</label>
-                <input type="time" id="startTime" value="00:00" style="width: 80px;">
-                <label for="endTime">até</label>
-                <input type="time" id="endTime" value="23:59" style="width: 80px;">
-                
-                <button id="applyFiltersButton"><i class="fas fa-filter"></i> Aplicar Filtros</button>
-            </div>
+    <div class="controls">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+        <h2>Filtros e Dados</h2>
+        <div class="theme-toggle-container">
+          <label for="checkbox" style="font-weight:normal;">Tema Escuro</label>
+          <input type="checkbox" id="checkbox" />
         </div>
-        
-        <div id="event-details">
-            <h2 style="margin-top: 0;">Detalhes do Evento Selecionado</h2>
-            <div id="event-content">Clique em um ponto no gráfico de "Saúde Geral" para ver os detalhes do Tracert.</div>
-        </div>
+      </div>
 
-        <div class="chart-container" id="chart-saude-maquina">
-            <h3><i class="fas fa-desktop"></i> 1. Carga Detalhada do Computador (CPU, RAM, Disco e Carga Média)</h3>
-            <canvas id="maquinaChartCanvas"></canvas> </div>
+      <div id="statusMessage">Aguardando inicialização...</div>
 
-        <div class="chart-container" id="chart-velocidade">
-            <h3><i class="fas fa-tachometer-alt"></i> 2. Teste de Velocidade da Internet (Download, Upload, Latência)</h3>
-            <canvas id="velocidadeChartCanvas"></canvas> </div>
+      <div class="filter-group">
+        <label for="dateSelect">1. Data do Arquivo (.csv):</label>
+        <input type="text" id="dateSelect" placeholder="DD-MM-YY" style="width: 100px; text-align:center;" />
+        <button id="btnBuscar"><i class="fas fa-search"></i> Buscar Data</button>
+      </div>
 
-        <div class="chart-container" id="chart-saude-meet">
-            <h3><i class="fas fa-wifi"></i> 3. Teste de Qualidade do Meet (Saúde, Latência Média, Jitter)</h3>
-            <canvas id="meetChartCanvas"></canvas> </div>
+      <div class="filter-group">
+        <label for="hostnameFilter">2. Máquina (Hostname):</label>
+        <select id="hostnameFilter" style="min-width: 180px;">
+          <option value="all">Todas as Máquinas</option>
+        </select>
 
-        <div class="chart-container" id="chart-tracert">
-            <h3><i class="fas fa-route"></i> 4. Tracert do Meet (Rota por Salto)</h3>
-            <canvas id="tracertChartCanvas"></canvas> </div>
+        <label for="startTime">3. Intervalo de Horário:</label>
+        <input type="time" id="startTime" value="00:00" style="width: 90px;" />
+        <label for="endTime">até</label>
+        <input type="time" id="endTime" value="23:59" style="width: 90px;" />
 
+        <button id="applyFiltersButton"><i class="fas fa-filter"></i> Aplicar Filtros</button>
+      </div>
     </div>
 
-    <script src="script.js"></script>
+    <div id="event-details">
+      <h2 style="margin-top:0;">Detalhes do Evento Selecionado</h2>
+      <div id="event-content">Clique em um ponto no gráfico de "Saúde Geral" para ver os detalhes do Tracert.</div>
+    </div>
+
+    <div class="chart-container" id="chart-saude-maquina">
+      <h3><i class="fas fa-desktop"></i> 1. Carga Detalhada do Computador (CPU, RAM, Disco e Carga Média)</h3>
+      <canvas id="maquinaChartCanvas"></canvas>
+    </div>
+
+    <div class="chart-container" id="chart-velocidade">
+      <h3><i class="fas fa-tachometer-alt"></i> 2. Teste de Velocidade da Internet (Download, Upload, Latência)</h3>
+      <canvas id="velocidadeChartCanvas"></canvas>
+    </div>
+
+    <div class="chart-container" id="chart-saude-meet">
+      <h3><i class="fas fa-wifi"></i> 3. Teste de Qualidade do Meet (Saúde, Latência Média, Jitter)</h3>
+      <canvas id="meetChartCanvas"></canvas>
+    </div>
+
+    <div class="chart-container" id="chart-tracert">
+      <h3><i class="fas fa-route"></i> 4. Tracert do Meet (Rota por Salto)</h3>
+      <canvas id="tracertChartCanvas"></canvas>
+    </div>
+
+  </div>
+
+  <script src="script.js"></script>
 </body>
 </html>
