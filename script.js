@@ -14,6 +14,7 @@ const BASE_CSV_URL = './'; // Caminho relativo para o GitHub Pages
 
 function getCurrentDateFormatted() {
     const today = new Date();
+    // Usa a data atual no formato DD-MM-AA
     const dd = String(today.getDate()).padStart(2, '0');
     const mm = String(today.getMonth() + 1).padStart(2, '0');
     const yy = String(today.getFullYear()).slice(-2);
@@ -21,26 +22,27 @@ function getCurrentDateFormatted() {
 }
 
 function getFileName() {
-    // MODIFICAÇÃO: Retorna o nome do arquivo no novo formato
+    // Retorna o nome do arquivo no formato py_monitor_DD-MM-AA.csv
     const date = document.getElementById('dateSelect').value;
     return `py_monitor_${date}.csv`;
 }
 
-// Converte strings do CSV em tipos corretos
+// Converte strings do CSV em tipos corretos (Sanitiza chaves e valores)
 function typeConverter(row) {
-    if (!row.Timestamp) return null; // Ignora linhas sem Timestamp
+    if (!row.Timestamp) return null; 
 
-    // 1. Conversão de Tipos e Sanitização de Nomes
+    // 1. Sanitização de Chaves
     const newRow = {};
     for (const key in row) {
-        // Remove parênteses e caracteres especiais para facilitar o acesso
-        const cleanKey = key.replace(/[\(\)%]/g, '').replace(' ', '_');
+        // Remove caracteres especiais e espaços para facilitar o acesso (e.g., 'Uso_CPU')
+        const cleanKey = key.replace(/[\(\)%]/g, '').replace(/ /g, '_').replace('.', ''); 
         newRow[cleanKey] = row[key];
     }
     
     // 2. Conversão de Tipos
     newRow.Timestamp = new Date(newRow.Timestamp);
     
+    // Conversões para float/int (usando || 0 para tratar N/A ou strings vazias)
     newRow.Uso_CPU = parseFloat(newRow.Uso_CPU) || 0;
     newRow.Uso_RAM = parseFloat(newRow.Uso_RAM) || 0;
     newRow.Uso_Disco = parseFloat(newRow.Uso_Disco) || 0;
@@ -49,16 +51,14 @@ function typeConverter(row) {
     newRow.UploadMbps = parseFloat(newRow.UploadMbps) || 0;
     newRow.Latencia_Speedtestms = parseFloat(newRow.Latencia_Speedtestms) || 0;
     newRow.Saude_Meet0100 = parseInt(newRow.Saude_Meet0100) || 0;
-    newRow.Latencia_Meet_Mediaps = parseFloat(newRow.Latencia_Meet_Mediaps) || 0;
+    newRow.Latencia_Meet_Mediaps = parseFloat(newRow.Latencia_Meet_Media_ms) || 0; // Usando a chave correta
     newRow.Jitter_Meetms = parseFloat(newRow.Jitter_Meetms) || 0;
     newRow.Perda_Meet = parseFloat(newRow.Perda_Meet) || 0;
 
-    // 3. Conversão de Dados de Tracert (para Gráfico)
+    // 3. Conversão de Dados de Tracert
     for (let i = 1; i <= 30; i++) {
-        const ipKey = `Hop_IP_${String(i).padStart(2, '0')}`;
         const latKey = `Hop_LAT_${String(i).padStart(2, '0')}ms`;
-        
-        // Converte Latência para número. "" ou "N/A" se tornam 0.
+        // Converte Latência para número. "" se torna 0.
         newRow[latKey] = parseFloat(newRow[latKey]) || 0;
     }
     
@@ -73,7 +73,8 @@ function typeConverter(row) {
 function toggleDarkMode() {
     const isDark = document.body.classList.toggle('dark-mode');
     localStorage.setItem('darkMode', isDark);
-    updateChartTheme(isDark);
+    // Destrói e redesenha para aplicar o tema no Chart.js
+    updateChartTheme(isDark); 
 }
 
 function applySavedTheme() {
@@ -86,7 +87,7 @@ function applySavedTheme() {
     }
     
     checkbox.addEventListener('change', toggleDarkMode);
-    updateChartTheme(savedTheme === 'true');
+    // O tema será aplicado na primeira chamada de drawAllCharts via initMonitor
 }
 
 function startAutoUpdate() {
@@ -96,29 +97,29 @@ function startAutoUpdate() {
     
     autoUpdateTimer = setInterval(() => {
         console.log(`Autoatualizando dados...`);
-        initMonitor();
+        // Chama initMonitor para buscar a versão mais recente do arquivo
+        initMonitor(); 
     }, AUTO_UPDATE_INTERVAL);
-
-    console.log(`Autoatualização configurada para cada ${AUTO_UPDATE_INTERVAL / 60000} minutos.`);
 }
 
 window.onload = function() {
-    applySavedTheme();
-    // Ajusta o seletor de data
+    // Aplica o tema salvo (chamado antes de initMonitor para evitar tela branca)
+    applySavedTheme(); 
+    
+    // Define a data atual
     document.getElementById('dateSelect').value = getCurrentDateFormatted();
     
-    document.getElementById('hostnameFilter').value = ""; // Limpa filtro de hostname ao carregar
-    
-    // Adiciona listener nos filtros
+    // Adiciona listeners
     document.getElementById('dateSelect').addEventListener('change', initMonitor);
+    document.getElementById('applyFiltersButton').addEventListener('click', filterChart);
     document.getElementById('hostnameFilter').addEventListener('change', filterChart); 
-
+    
     initMonitor(); 
     startAutoUpdate();
 }
 
 // --------------------------------------------------------------------------
-// Lógica de Carregamento e PapaParse
+// Lógica de Carregamento e PapaParse (CORRIGIDA)
 // --------------------------------------------------------------------------
 
 function initMonitor() {
@@ -133,27 +134,35 @@ function initMonitor() {
     // Limpa filtros do Hostname e horário
     document.getElementById('startTime').value = "00:00";
     document.getElementById('endTime').value = "23:59";
+    document.getElementById('event-details').style.display = 'none';
 
     Papa.parse(fullURL, {
         download: true, 
         header: true,   
         skipEmptyLines: true,
-        // Usa a função de conversão adaptada
-        worker: true, // Usa um worker para grandes arquivos
+        // --- CORREÇÃO CRÍTICA DO PAPAPARSE ---
+        worker: false, // Desabilita worker para evitar falhas em caminhos relativos
+        downloadRequestHeaders: {
+            'Cache-Control': 'no-cache', // Força o navegador a buscar a nova versão
+            'Pragma': 'no-cache',
+            'If-Modified-Since': 'Sat, 01 Jan 2000 00:00:00 GMT'
+        },
+        // --- FIM DA CORREÇÃO ---
+
         complete: function(results) {
             
-            // Filtra linhas que foram convertidas com sucesso
+            // Mapeia usando a função de conversão
             allData = results.data.map(typeConverter).filter(row => row !== null); 
 
             if (allData.length === 0) {
-                statusElement.textContent = `Erro: Nenhuma linha de dados válida em ${fileName} ou arquivo não encontrado.`;
+                statusElement.textContent = `Erro: Nenhuma linha de dados válida em ${fileName} ou arquivo vazio.`;
                 destroyAllCharts();
                 return;
             }
             
             statusElement.textContent = `Sucesso! Carregado ${allData.length} registros de ${fileName}.`;
 
-            populateHostnames(allData); // Preenche o seletor de hostname
+            populateHostnames(allData); 
             filterChart(); 
         },
         error: function(error) {
@@ -167,8 +176,6 @@ function initMonitor() {
 function populateHostnames(data) {
     const hostnames = [...new Set(data.map(d => d.Hostname))];
     const select = document.getElementById('hostnameFilter');
-    
-    // Preserva o valor atual do filtro se possível
     const selectedValue = select.value;
 
     select.innerHTML = '<option value="all">Todas as Máquinas</option>';
@@ -194,20 +201,16 @@ function filterChart() {
     const endTimeStr = document.getElementById('endTime').value;
     const hostnameFilter = document.getElementById('hostnameFilter').value;
 
-    if (!allData || allData.length === 0) {
-        currentDataToDisplay = [];
-        return; 
-    }
+    if (!allData || allData.length === 0) { return; }
 
     const filteredData = allData.filter(row => {
         const timestamp = row.Timestamp;
-        if (!(timestamp instanceof Date)) return false; // Ignora se não for data válida
+        if (!(timestamp instanceof Date)) return false;
         
         const timeOnly = timestamp.toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit', hour12: false});
         
         const matchesHostname = hostnameFilter === 'all' || row.Hostname === hostnameFilter; 
         
-        // Conversão de horário para comparação HH:MM
         const isWithinTime = timeOnly >= startTimeStr && timeOnly <= endTimeStr;
 
         return isWithinTime && matchesHostname;
@@ -227,6 +230,7 @@ function destroyAllCharts() {
     if (chartInstanceMeet) chartInstanceMeet.destroy();
     if (chartInstanceMaquina) chartInstanceMaquina.destroy();
     if (chartInstanceTracert) chartInstanceTracert.destroy();
+    // Recria os elementos canvas após destruir os gráficos
     document.getElementById('chart-saude-meet').innerHTML = '<canvas id="meetChartCanvas"></canvas>';
     document.getElementById('chart-saude-maquina').innerHTML = '<canvas id="maquinaChartCanvas"></canvas>';
     document.getElementById('chart-tracert').innerHTML = '<canvas id="tracertChartCanvas"></canvas>';
@@ -264,11 +268,9 @@ function drawMeetCharts(dataToDisplay, isDark) {
     const color = isDark ? '#f0f0f0' : '#333';
     const gridColor = isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)';
     
-    // Escala Jitter/Latência
     let maxLatJitter = Math.max(d3.max(dataJitter) || 0, d3.max(dataLatency) || 0) * 1.2;
     const latencyMaxScale = Math.ceil((maxLatJitter + 10) / 50) * 50; 
 
-    // Chart de Saúde Geral (Score)
     const ctxMeet = document.getElementById('meetChartCanvas').getContext('2d');
     chartInstanceMeet = new Chart(ctxMeet, {
         type: 'line', 
@@ -277,30 +279,20 @@ function drawMeetCharts(dataToDisplay, isDark) {
             datasets: [{
                 label: 'Saúde Geral (Score 0-100)',
                 data: dataScores,
-                yAxisID: 'y-score', 
-                borderColor: '#4CAF50',
-                backgroundColor: 'rgba(76, 175, 80, 0.1)',
-                tension: 0.3, pointRadius: 5, fill: true,
-                order: 1
+                yAxisID: 'y-score', borderColor: '#4CAF50', backgroundColor: 'rgba(76, 175, 80, 0.1)',
+                tension: 0.3, pointRadius: 5, fill: true, order: 1
             },
             {
                 label: 'Jitter (Variação da Latência)',
                 data: dataJitter,
-                yAxisID: 'y-latency', 
-                borderColor: '#FFC107',
-                backgroundColor: 'rgba(255, 193, 7, 0.1)',
-                tension: 0.3, pointRadius: 3, fill: false,
-                order: 2
+                yAxisID: 'y-latency', borderColor: '#FFC107', backgroundColor: 'rgba(255, 193, 7, 0.1)',
+                tension: 0.3, pointRadius: 3, fill: false, order: 2
             },
             {
                 label: 'Latência Média',
                 data: dataLatency,
-                yAxisID: 'y-latency', 
-                borderColor: '#2196F3',
-                backgroundColor: 'rgba(33, 150, 243, 0.1)',
-                tension: 0.3, pointRadius: 3, fill: false,
-                borderDash: [5, 5],
-                order: 3
+                yAxisID: 'y-latency', borderColor: '#2196F3', backgroundColor: 'rgba(33, 150, 243, 0.1)',
+                tension: 0.3, pointRadius: 3, fill: false, borderDash: [5, 5], order: 3
             }]
         },
         options: {
@@ -381,25 +373,21 @@ function drawTracertChart(lastRecord, isDark) {
     
     const tracertData = [];
     const color = isDark ? '#f0f0f0' : '#333';
-    const gridColor = isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)';
 
-    for (let i = 1; i <= 30; i++) {
+    for (let i = 1; i <= MAX_TTL; i++) {
         const ipKey = `Hop_IP_${String(i).padStart(2, '0')}`;
         const latKey = `Hop_LAT_${String(i).padStart(2, '0')}ms`;
         
         const ip = lastRecord[ipKey];
         const lat = lastRecord[latKey];
 
-        // Se a latência for 0, é um hop perdido ou preenchimento
-        if (lat === 0 || lat === "" || ip === "") continue; 
+        if (lat === 0 || ip === "") continue; 
 
         tracertData.push({
             hop: i,
             ip: ip.replace(' [DESTINO]', ''),
             latency: lat
         });
-
-        if (ip.includes("[DESTINO]")) break;
     }
     
     if (tracertData.length === 0) {
@@ -428,12 +416,12 @@ function drawTracertChart(lastRecord, isDark) {
             responsive: true, maintainAspectRatio: false, color: color,
             scales: {
                 x: { 
-                    grid: { color: gridColor }, 
+                    grid: { color: 'rgba(0,0,0,0.1)' }, // Deixando grid mais leve
                     ticks: { color: color, callback: (val, index) => `${labels[index]}\n(${dataIps[index]})` } 
                 },
                 y: { 
                     title: { display: true, text: 'Latência (ms)', color: color }, 
-                    grid: { color: gridColor }, 
+                    grid: { color: 'rgba(0,0,0,0.1)' }, 
                     ticks: { color: color } 
                 }
             },
@@ -445,67 +433,7 @@ function drawTracertChart(lastRecord, isDark) {
     });
 }
 
-// --------------------------------------------------------------------------
-// Lógica de Detalhe de Evento (Adaptada para Novas Colunas)
-// --------------------------------------------------------------------------
-
-function displayEventDetails(dataRow) {
-    const detailsContainer = document.getElementById('event-details');
-    const content = document.getElementById('event-content');
-
-    // Campos principais
-    const primaryFields = [
-        { label: "Timestamp", key: "Timestamp", format: d => d.toLocaleString('pt-BR') },
-        { label: "Hostname", key: "Hostname" },
-        { label: "Usuário Logado", key: "Usuario" },
-        { label: "Localização", key: "Cidade" },
-        { label: "IP Público", key: "IP_Publico" },
-        { label: "Provedor", key: "Provedor" },
-        { label: "Download (Mbps)", key: "DownloadMbps", format: d => `${d.toFixed(2)}` },
-        { label: "Carga do PC (%)", key: "Carga_Computador" },
-        { label: "Saúde Meet (0-100)", key: "Saude_Meet0100" },
-        { label: "Jitter (ms)", key: "Jitter_Meetms", format: d => `${d.toFixed(2)}` },
-        { label: "Perda (%)", key: "Perda_Meet", format: d => `${d.toFixed(1)}` },
-    ];
-
-    let html = '';
-    
-    // 1. Adiciona campos principais
-    primaryFields.forEach(field => {
-        const value = dataRow[field.key];
-        const displayValue = field.format ? field.format(value) : value || 'N/A';
-        html += `<p><strong>${field.label}:</strong> ${displayValue}</p>`;
-    });
-
-    // 2. Adiciona Hops Dinamicamente
-    html += `<h4 style="margin-top: 15px; border-bottom: 1px solid #ccc; padding-bottom: 5px;">Detalhes do Rastreamento de Rota</h4>`;
-
-    let foundHops = false;
-    for (let i = 1; i <= 30; i++) {
-        const ipKey = `Hop_IP_${String(i).padStart(2, '0')}`;
-        const latencyKey = `Hop_LAT_${String(i).padStart(2, '0')}ms`;
-
-        const ip = dataRow[ipKey];
-        const latency = dataRow[latencyKey];
-        
-        // Exibe se o IP não for vazio
-        if (ip && ip.trim() !== '') {
-            const latencyValue = latency ? `${latency.toFixed(2)} ms` : 'N/A';
-            html += `<p style="margin-top: 5px; margin-bottom: 5px;"><strong>Hop ${i}:</strong> ${ip} (${latencyValue})</p>`;
-            foundHops = true;
-        }
-    }
-    
-    if (!foundHops) {
-        html += `<p style="color: #999;">Nenhum dado de rastreamento de rota encontrado neste registro (requer execução com 'sudo').</p>`;
-    }
-
-    content.innerHTML = html;
-    detailsContainer.style.display = 'block';
-}
-
 function handleChartClick(event) {
-    // Verifica se a Chart.js está instalada
     if (typeof Chart === 'undefined') return; 
     
     const points = chartInstanceMeet.getElementsAtEventForMode(event, 'index', { intersect: true }, false);
@@ -524,24 +452,53 @@ function handleChartClick(event) {
 }
 
 
-document.addEventListener('DOMContentLoaded', () => {
-    // Certifique-se de que o PapaParse esteja disponível globalmente
-    if (typeof Papa === 'undefined') {
-        document.getElementById('statusMessage').textContent = 'ERRO: PapaParse (CSV Reader) não está carregado. Verifique seu index.html.';
-        return;
-    }
-    
-    // O Chart.js deve ser carregado separadamente no HTML
-    if (typeof Chart === 'undefined') {
-         document.getElementById('statusMessage').textContent = 'AVISO: Chart.js não carregado. Gráficos desabilitados.';
-    }
-    
-    applySavedTheme();
-    document.getElementById('dateSelect').value = getCurrentDateFormatted();
-    
-    // Adiciona listener para aplicar filtros no clique do botão
-    document.getElementById('applyFiltersButton').addEventListener('click', filterChart);
+function displayEventDetails(dataRow) {
+    const detailsContainer = document.getElementById('event-details');
+    const content = document.getElementById('event-content');
 
-    initMonitor(); 
-    startAutoUpdate();
-});
+    const primaryFields = [
+        { label: "Timestamp", key: "Timestamp", format: d => d.toLocaleString('pt-BR') },
+        { label: "Hostname", key: "Hostname" },
+        { label: "Usuário Logado", key: "Usuario" },
+        { label: "Localização", key: "Cidade" },
+        { label: "IP Público", key: "IP_Publico" },
+        { label: "Provedor", key: "Provedor" },
+        { label: "Download (Mbps)", key: "DownloadMbps", format: d => `${d.toFixed(2)}` },
+        { label: "Carga do PC (%)", key: "Carga_Computador" },
+        { label: "Saúde Meet (0-100)", key: "Saude_Meet0100" },
+        { label: "Jitter (ms)", key: "Jitter_Meetms", format: d => `${d.toFixed(2)}` },
+        { label: "Perda (%)", key: "Perda_Meet", format: d => `${d.toFixed(1)}` },
+    ];
+
+    let html = '';
+    
+    primaryFields.forEach(field => {
+        const value = dataRow[field.key];
+        const displayValue = field.format ? field.format(value) : value || 'N/A';
+        html += `<p><strong>${field.label}:</strong> ${displayValue}</p>`;
+    });
+
+    html += `<h4 style="margin-top: 15px; border-bottom: 1px solid #ccc; padding-bottom: 5px;">Detalhes do Rastreamento de Rota</h4>`;
+
+    let foundHops = false;
+    for (let i = 1; i <= 30; i++) {
+        const ipKey = `Hop_IP_${String(i).padStart(2, '0')}`;
+        const latencyKey = `Hop_LAT_${String(i).padStart(2, '0')}ms`;
+
+        const ip = dataRow[ipKey];
+        const latency = dataRow[latencyKey];
+        
+        if (ip && ip.trim() !== '') {
+            const latencyValue = latency > 0 ? `${latency.toFixed(2)} ms` : 'Perda/Timeout';
+            html += `<p style="margin-top: 5px; margin-bottom: 5px;"><strong>Hop ${i}:</strong> ${ip} (${latencyValue})</p>`;
+            foundHops = true;
+        }
+    }
+    
+    if (!foundHops) {
+        html += `<p style="color: #999;">Nenhum dado de rastreamento de rota encontrado neste registro (requer execução com 'sudo').</p>`;
+    }
+
+    content.innerHTML = html;
+    detailsContainer.style.display = 'block';
+}
