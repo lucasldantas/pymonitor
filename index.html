@@ -14,82 +14,31 @@
 
     <style>
         /* Variáveis de Cores */
-        :root {
-            --bg-light: #f7f7f7;
-            --bg-card: #ffffff;
-            --text-dark: #2c3e50;
-            --primary: #3498db; 
-            --shadow: 0 4px 8px rgba(0, 0, 0, 0.05);
-            --border: #e0e0e0;
-        }
-
-        body.dark-mode {
-            --bg-light: #1e2124;
-            --bg-card: #282b30;
-            --text-dark: #ffffff;
-            --primary: #7289da; 
-            --shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
-            --border: #444;
-        }
+        :root { --bg-light: #f7f7f7; --bg-card: #ffffff; --text-dark: #2c3e50; --primary: #3498db; --shadow: 0 4px 8px rgba(0, 0, 0, 0.05); --border: #e0e0e0; }
+        body.dark-mode { --bg-light: #1e2124; --bg-card: #282b30; --text-dark: #ffffff; --primary: #7289da; --shadow: 0 4px 8px rgba(0, 0, 0, 0.3); --border: #444; }
 
         /* Estilos Gerais e Reset */
         body { font-family: 'Roboto', sans-serif; margin: 0; background-color: var(--bg-light); color: var(--text-dark); transition: background-color 0.3s, color 0.3s; }
         header { background-color: var(--primary); color: white; padding: 25px; text-align: center; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2); }
-        h1, h3 { margin: 0; }
         .container { max-width: 1300px; margin: 20px auto; padding: 0 20px; }
         
         /* Controles e Cards */
-        .controls, .chart-container, #event-details { 
-            background-color: var(--bg-card); 
-            padding: 25px; 
-            border-radius: 12px; 
-            box-shadow: var(--shadow); 
-            margin-bottom: 25px; 
-        }
-        .chart-container h3 { 
-            margin-top: 0; 
-            color: var(--primary); 
-            border-bottom: 2px solid var(--border); 
-            padding-bottom: 10px; 
-            margin-bottom: 20px;
-        }
+        .controls, .chart-container, #event-details { background-color: var(--bg-card); padding: 25px; border-radius: 12px; box-shadow: var(--shadow); margin-bottom: 25px; }
+        .chart-container h3 { color: var(--primary); border-bottom: 2px solid var(--border); padding-bottom: 10px; margin-bottom: 20px; }
 
-        /* FILTROS */
+        /* Filtros */
         .filter-group { display: flex; align-items: center; flex-wrap: wrap; margin-bottom: 15px; }
         .filter-group label { margin-right: 15px; font-weight: 500; min-width: 150px; }
-        .filter-group input, .filter-group select { 
-            padding: 10px; 
-            border: 1px solid var(--border); 
-            border-radius: 8px; 
-            margin-right: 10px; 
-            background-color: transparent; 
-            color: var(--text-dark);
-            transition: border-color 0.3s;
-        }
-        .controls button { 
-            padding: 10px 20px; 
-            background-color: var(--primary); 
-            color: white; 
-            border: none; 
-            border-radius: 8px; 
-            cursor: pointer; 
-            font-weight: bold; 
-            transition: background-color 0.3s;
-        }
+        .filter-group input, .filter-group select { padding: 10px; border: 1px solid var(--border); border-radius: 8px; margin-right: 10px; background-color: transparent; color: var(--text-dark); transition: border-color 0.3s; }
+        .controls button { padding: 10px 20px; background-color: var(--primary); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; transition: background-color 0.3s; }
         
         /* SOLUÇÃO DE TAMANHO FIXO (CRÍTICA) */
-        .chart-container {
-            position: relative; 
-        }
-        .chart-container canvas {
-            /* Define a altura mínima/máxima para estabilizar o Chart.js */
-            min-height: 350px; 
-            max-height: 500px;
-            width: 100% !important; 
-            height: 100% !important; 
-        }
+        .chart-container { position: relative; }
+        .chart-container canvas { min-height: 350px; max-height: 500px; width: 100% !important; height: 100% !important; }
         
-        /* Detalhes do Evento */
+        /* Estilo Adicional */
+        #statusMessage { margin-top: 10px; font-weight: 700; color: #e74c3c; }
+        .theme-toggle-container { margin-left: auto; display: flex; align-items: center; }
         #event-details { display: none; border-left: 5px solid #27ae60; }
     </style>
 </head>
@@ -141,19 +90,19 @@
 
         <div class="chart-container" id="chart-saude-maquina">
             <h3><i class="fas fa-desktop"></i> 1. Carga Detalhada do Computador (CPU, RAM, Disco e Carga Média)</h3>
-        </div>
+            <canvas id="maquinaChartCanvas"></canvas> </div>
 
         <div class="chart-container" id="chart-velocidade">
             <h3><i class="fas fa-tachometer-alt"></i> 2. Teste de Velocidade da Internet (Download, Upload, Latência)</h3>
-        </div>
+            <canvas id="velocidadeChartCanvas"></canvas> </div>
 
         <div class="chart-container" id="chart-saude-meet">
             <h3><i class="fas fa-wifi"></i> 3. Teste de Qualidade do Meet (Saúde, Latência Média, Jitter)</h3>
-        </div>
+            <canvas id="meetChartCanvas"></canvas> </div>
 
         <div class="chart-container" id="chart-tracert">
             <h3><i class="fas fa-route"></i> 4. Tracert do Meet (Rota por Salto)</h3>
-        </div>
+            <canvas id="tracertChartCanvas"></canvas> </div>
 
     </div>
 
