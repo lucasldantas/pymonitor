@@ -1,9 +1,9 @@
 // ========= Config =========
 const AUTO_UPDATE_INTERVAL = 10 * 60 * 1000; // 10 minutos em milissegundos
 const BASE_CSV_URL = './'; // caminho relativo (ex.: GitHub Pages)
-const MAX_TTL = 30; // Número de hops mapeados no CSV
+const MAX_TTL = 30; // Limite fixo de hops para o CSV (Deve ser igual ao Python)
 
-// ========= Estado =========
+// ========= Estado (Instâncias de Gráfico) =========
 let allData = [];
 let currentDataToDisplay = [];
 let autoUpdateTimer = null;
@@ -29,43 +29,37 @@ function getFileName() {
 
 // Normaliza nomes de colunas e tipos
 function typeConverter(row) {
-    if (!row.Timestamp) return null;
+    if (!row.Timestamp) return null; 
 
     const newRow = {};
     for (const key in row) {
-        // remove (), %, espaços e ponto único para facilitar acesso
-        const cleanKey = key.replace(/[\(\)%]/g, '').replace(/ /g, '_').replace('.', '');
+        const cleanKey = key.replace(/[\(\)%]/g, '').replace(/ /g, '_').replace('.', ''); 
         newRow[cleanKey] = row[key];
     }
-
-    // Tipos básicos
+    
     newRow.Timestamp = new Date(newRow.Timestamp);
+    
+    // Tipos e Conversão de Nome
     newRow.Uso_CPU = parseFloat(newRow.Uso_CPU) || 0;
     newRow.Uso_RAM = parseFloat(newRow.Uso_RAM) || 0;
     newRow.Uso_Disco = parseFloat(newRow.Uso_Disco) || 0;
     newRow.Carga_Computador = parseInt(newRow.Carga_Computador) || 0;
-
     newRow.DownloadMbps = parseFloat(newRow.DownloadMbps) || 0;
     newRow.UploadMbps = parseFloat(newRow.UploadMbps) || 0;
     newRow.Latencia_Speedtestms = parseFloat(newRow.Latencia_Speedtestms) || 0;
-
     newRow.Saude_Meet0100 = parseInt(newRow.Saude_Meet0100) || 0;
-    // Tenta diferentes chaves para latência média (compatibilidade com CSVs antigos)
-    const latMedia =
-        parseFloat(newRow.Latencia_Meet_Media_ms ?? newRow.Latencia_Meet_Mediaps ?? newRow.Latencia_Meet_Media) || 0;
-    newRow.Latencia_Meet_Media_ms = latMedia;
-
+    newRow.Latencia_Meet_Mediaps = parseFloat(newRow.Latencia_Meet_Media_ms) || 0; 
     newRow.Jitter_Meetms = parseFloat(newRow.Jitter_Meetms) || 0;
     newRow.Perda_Meet = parseFloat(newRow.Perda_Meet) || 0;
 
-    // hops
+    // Hops
     for (let i = 1; i <= MAX_TTL; i++) {
         const latKey = `Hop_LAT_${String(i).padStart(2, '0')}ms`;
         const ipKey  = `Hop_IP_${String(i).padStart(2, '0')}`;
         newRow[latKey] = parseFloat(newRow[latKey]) || 0;
         newRow[ipKey] = (newRow[ipKey] ?? '').toString();
     }
-
+    
     return newRow;
 }
 
@@ -73,7 +67,7 @@ function typeConverter(row) {
 function toggleDarkMode() {
     const isDark = document.body.classList.toggle('dark-mode');
     localStorage.setItem('darkMode', isDark);
-    drawAllCharts(currentDataToDisplay); // Redesenha para aplicar o tema
+    drawAllCharts(currentDataToDisplay);
 }
 
 function applySavedTheme() {
@@ -96,39 +90,90 @@ function startAutoUpdate() {
     }, AUTO_UPDATE_INTERVAL);
 }
 
-// ========= Autocomplete e Hostnames =========
+// ========= Carregamento CSV =========
+function initMonitor() {
+    const isDark = applySavedTheme(); 
+    
+    const statusElement = document.getElementById('statusMessage');
+    const fileName = getFileName();
+    const fullURL = BASE_CSV_URL + fileName;
+
+    showStatus('loading', `Carregando: ${fileName}...`);
+    allData = []; 
+    currentDataToDisplay = [];
+
+    document.getElementById('startTime').value = "00:00";
+    document.getElementById('endTime').value = "23:59";
+    document.getElementById('event-details').style.display = 'none';
+
+    Papa.parse(fullURL, {
+        download: true, 
+        header: true,   
+        skipEmptyLines: true,
+        worker: false, // Evita falhas de threading
+        downloadRequestHeaders: {
+            'Cache-Control': 'no-cache', 
+            'Pragma': 'no-cache',
+            'If-Modified-Since': 'Sat, 01 Jan 2000 00:00:00 GMT'
+        },
+
+        complete: (results) => {
+            
+            allData = results.data.map(typeConverter).filter(r => r !== null); 
+            destroyAllCharts(); 
+            
+            if (allData.length === 0) {
+                showStatus('error', `Nenhuma linha de dados válida encontrada no arquivo.`);
+                return;
+            }
+            
+            showStatus('success', `Dados prontos.`);
+            populateHostnames(allData);
+            filterChart();
+        },
+        error: (err) => {
+            console.error('Erro ao carregar o CSV:', err);
+            showStatus('error', `ERRO: Não foi possível carregar o arquivo ${fileName}. Verifique a data.`);
+            destroyAllCharts();
+        }
+    });
+}
+
 function populateHostnames(data) {
     const hostnames = [...new Set(data.map(d => d.Hostname))].sort();
     const datalist = document.getElementById('hostnames');
     const input = document.getElementById('hostnameInput');
     
-    // Preserva o valor atual do filtro se possível
     const selectedValue = input.value;
 
-    datalist.innerHTML = '<option value="all">Todas as Máquinas</option>';
+    datalist.innerHTML = ''; // Limpa antes de preencher
+    const allOption = document.createElement('option');
+    allOption.value = 'all';
+    allOption.textContent = 'Todas as Máquinas';
+    datalist.appendChild(allOption);
+
     hostnames.forEach(host => {
         const option = document.createElement('option');
         option.value = host;
         datalist.appendChild(option);
     });
-    
-    // Tenta redefinir o valor ou usar 'all'
-    if (hostnames.includes(selectedValue)) {
+
+    if (hostnames.includes(selectedValue) || selectedValue === 'all') {
          input.value = selectedValue;
-    } else if (!selectedValue || selectedValue === 'all') {
-        input.value = 'all'; 
     } else {
-        // Se o valor não é válido, limpa
-        input.value = 'all';
+        input.value = 'all'; 
     }
 }
+
+// --------------------------------------------------------------------------
+// Lógica de Status e Animação
+// --------------------------------------------------------------------------
 
 function showStatus(type, message) {
     const icon = document.getElementById('statusIcon');
     const msg = document.getElementById('statusMessage');
     const container = document.getElementById('statusContainer');
     
-    // Limpa classes anteriores
     container.className = '';
     icon.className = 'fas'; 
     msg.textContent = message;
@@ -154,53 +199,10 @@ function showStatus(type, message) {
 }
 
 
-// ========= Carregamento CSV =========
-function initMonitor() {
-    showStatus('loading', 'Carregando e processando dados...');
-    
-    const fileName = getFileName();
-    const fullURL = BASE_CSV_URL + fileName;
+// --------------------------------------------------------------------------
+// Lógica de Filtro e Desenho
+// --------------------------------------------------------------------------
 
-    allData = [];
-    currentDataToDisplay = [];
-
-    document.getElementById('startTime').value = '00:00';
-    document.getElementById('endTime').value = '23:59';
-    document.getElementById('event-details').style.display = 'none';
-
-    Papa.parse(fullURL, {
-        download: true,
-        header: true,
-        skipEmptyLines: true,
-        worker: false,
-        downloadRequestHeaders: {
-            'Cache-Control': 'no-cache',
-            'Pragma': 'no-cache',
-            'If-Modified-Since': 'Sat, 01 Jan 2000 00:00:00 GMT'
-        },
-        complete: (results) => {
-            
-            allData = results.data.map(typeConverter).filter(r => r !== null);
-            destroyAllCharts(); // Destroi antes de desenhar
-            
-            if (allData.length === 0) {
-                showStatus('error', `Nenhuma linha válida encontrada no arquivo.`);
-                return;
-            }
-            
-            showStatus('success', `Dados prontos.`);
-            populateHostnames(allData);
-            filterChart();
-        },
-        error: (err) => {
-            console.error('Erro ao carregar o CSV:', err);
-            showStatus('error', `ERRO: Não foi possível carregar o arquivo ${fileName}. Verifique a data.`);
-            destroyAllCharts();
-        }
-    });
-}
-
-// ========= Filtro & Render =========
 function filterChart() {
     const startTimeStr = document.getElementById('startTime').value;
     const endTimeStr = document.getElementById('endTime').value;
@@ -223,28 +225,29 @@ function filterChart() {
     drawAllCharts(filtered);
 }
 
-// --- DESTRUIÇÃO E DESENHO (ESTÁVEL) ---
-
 function destroyAllCharts() {
-    // Lista de IDs de canvas
-    const chartIds = ['meetChartCanvas', 'maquinaChartCanvas', 'velocidadeChartCanvas', 'tracertChartCanvas'];
+    // 1. Destrói as instâncias Chart.js existentes
+    if (chartInstanceMeet) chartInstanceMeet.destroy();
+    if (chartInstanceMaquina) chartInstanceMaquina.destroy();
+    if (chartInstanceVelocidade) chartInstanceVelocidade.destroy(); 
+    if (chartInstanceTracert) chartInstanceTracert.destroy();
     
-    chartIds.forEach(id => {
-        const existingChart = Chart.getChart(id);
-        if (existingChart) {
-            existingChart.destroy();
-        }
-    });
+    // 2. Zera as variáveis de instância (CRUCIAL para estabilidade)
+    chartInstanceMeet = null;
+    chartInstanceMaquina = null;
+    chartInstanceVelocidade = null;
+    chartInstanceTracert = null;
+}
 
-    // Garante que as variáveis globais sejam zeradas
-    chartInstanceMeet = chartInstanceMaquina = chartInstanceVelocidade = chartInstanceTracert = null;
+function updateChartTheme() {
+    drawAllCharts(currentDataToDisplay);
 }
 
 function drawAllCharts(dataToDisplay) {
     destroyAllCharts(); // Limpeza crucial no início
     
     if (!dataToDisplay || dataToDisplay.length === 0) {
-        // Garante que a mensagem de status (em caso de erro de filtro) permaneça visível
+        document.getElementById('statusMessage').textContent = 'Nenhum dado encontrado no intervalo/hostname.';
         return;
     }
     const isDark = document.body.classList.contains('dark-mode');
@@ -256,13 +259,19 @@ function drawAllCharts(dataToDisplay) {
     drawTracertChart(dataToDisplay[dataToDisplay.length - 1], isDark);
 }
 
-// Função auxiliar para obter o contexto do canvas (SOLUÇÃO ESTÁVEL)
+// ========= Helpers de Gráfico =========
 function getChartContext(canvasId) {
     const canvas = document.getElementById(canvasId);
     return canvas ? canvas.getContext('2d') : null;
 }
 
-// ========= Gráficos (Mantendo a Lógica da Última Versão) =========
+// -----------------------------------
+// FUNÇÕES DE DESENHO DE GRÁFICOS (Chart.js)
+// -----------------------------------
+
+// -------------------------------------------------------------
+// GRÁFICO 1: CARGA DETALHADA DO COMPUTADOR (MAX: 100 FIXO)
+// -------------------------------------------------------------
 function drawMaquinaChart(rows, isDark) {
     const labels = rows.map(r => r.Timestamp ? r.Timestamp.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '');
     const dataCPU = rows.map(r => r.Uso_CPU);
@@ -273,9 +282,7 @@ function drawMaquinaChart(rows, isDark) {
     const color = isDark ? '#f0f0f0' : '#333';
     const grid = isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)';
 
-    const allUsage = [...dataCPU, ...dataRAM, ...dataDisco, ...dataCarga].filter(v => v > 0);
-    const maxUsage = d3.max(allUsage) || 10;
-    const usageMaxScale = Math.max(50, Math.ceil(maxUsage / 10) * 10);
+    const maxUsage = 100; // FIXO em 100, conforme solicitação.
 
     const ctx = getChartContext('maquinaChartCanvas');
     if (!ctx) return;
@@ -295,13 +302,17 @@ function drawMaquinaChart(rows, isDark) {
             responsive: true, maintainAspectRatio: false, color: color,
             scales: {
                 x: { title: { display:true, text:'Horário (HH:MM)', color }, grid:{ color: grid }, ticks:{ color } },
-                y: { min:0, max: usageMaxScale, title:{ display:true, text:'Uso (%) / Carga (0-100)', color }, grid:{ color: grid }, ticks:{ color } }
+                // MAX: 100 FIXO
+                y: { min:0, max: maxUsage, title:{ display:true, text:'Uso (%) / Carga (0-100)', color }, grid:{ color: grid }, ticks:{ color } }
             },
             plugins: { title: { display:true, text:'1. Carga Detalhada do Computador', color }, legend:{ labels:{ color } } }
         }
     });
 }
 
+// -------------------------------------------------------------
+// GRÁFICO 2: TESTE DE VELOCIDADE (Download, Upload, Latência)
+// -------------------------------------------------------------
 function drawVelocidadeChart(rows, isDark) {
     const labels = rows.map(r => r.Timestamp ? r.Timestamp.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '');
     const dataDownload = rows.map(r => r.DownloadMbps);
@@ -341,6 +352,9 @@ function drawVelocidadeChart(rows, isDark) {
     });
 }
 
+// -------------------------------------------------------------
+// GRÁFICO 3: QUALIDADE DO MEET (JÁ ESTAVA FIXO EM MAX: 100)
+// -------------------------------------------------------------
 function drawMeetCharts(rows, isDark) {
     const labels = rows.map(r => r.Timestamp ? r.Timestamp.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '');
     const dataScore = rows.map(r => r.Saude_Meet0100);
@@ -372,6 +386,7 @@ function drawMeetCharts(rows, isDark) {
             onClick: handleChartClick,
             scales: {
                 x: { title:{ display:true, text:'Horário (HH:MM)', color }, grid:{ color: grid }, ticks:{ color } },
+                // Eixo Y-Score FIXO em 100
                 'y-score': { type:'linear', position:'left', min:0, max:100, title:{ display:true, text:'Saúde Meet (Score)', color }, grid:{ color: grid }, ticks:{ color, stepSize:25 } },
                 'y-latency': { type:'linear', position:'right', min:0, max: latMax, title:{ display:true, text:'Latência / Jitter (ms)', color }, grid:{ drawOnChartArea:false, color: grid }, ticks:{ color } }
             },
@@ -380,6 +395,9 @@ function drawMeetCharts(rows, isDark) {
     });
 }
 
+// -------------------------------------------------------------
+// GRÁFICO 4: TRACERT (Rota por Salto)
+// -------------------------------------------------------------
 function drawTracertChart(lastRow, isDark) {
     if (!lastRow) return;
 
@@ -445,7 +463,7 @@ function drawTracertChart(lastRow, isDark) {
     });
 }
 
-// ========= Interações =========
+// ========= Interações e Inicialização =========
 function handleChartClick(event) {
     const chart = Chart.getChart('meetChartCanvas');
     if (!chart) return;
@@ -525,7 +543,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('dateSelect').addEventListener('change', initMonitor);
     document.getElementById('applyFiltersButton').addEventListener('click', filterChart);
     document.getElementById('hostnameInput').addEventListener('change', filterChart); 
-
+    
     // inicialização
     initMonitor();
     startAutoUpdate();
