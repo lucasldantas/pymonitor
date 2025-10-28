@@ -4,19 +4,32 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Monitoramento de Diagnóstico de Rede e Máquina</title>
-    <script src="https://d3js.org/d3.v7.min.js"></script>
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+
     <style>
-        body { font-family: 'Arial', sans-serif; margin: 0; background-color: #f4f4f4; }
+        /* Estilos gerais */
+        body { font-family: 'Arial', sans-serif; margin: 0; background-color: #f4f4f4; color: #333; transition: background-color 0.3s, color 0.3s; }
         header { background-color: #333; color: white; padding: 15px; text-align: center; }
         .container { max-width: 1200px; margin: 20px auto; padding: 0 20px; }
-        .controls { background-color: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px; }
-        .chart-container { background-color: #fff; padding: 20px; margin-top: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .controls, .chart-container, #event-details { background-color: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px; }
         .chart-container h3 { margin-top: 0; color: #555; border-bottom: 1px solid #eee; padding-bottom: 10px; }
         .filter-group label { margin-right: 10px; font-weight: bold; }
         .filter-group input, .filter-group select, .filter-group button { padding: 8px; margin-right: 10px; border: 1px solid #ccc; border-radius: 4px; }
-        /* Estilos para os gráficos D3 (se precisar) */
-        .axis path, .axis line { fill: none; stroke: #333; shape-rendering: crispEdges; }
-        .tooltip { position: absolute; text-align: center; padding: 8px; font: 12px sans-serif; background: lightsteelblue; border: 0px; border-radius: 4px; pointer-events: none; opacity: 0; }
+        #statusMessage { margin-top: 10px; font-weight: bold; color: #ff5722; }
+        
+        /* Tema Escuro (DarkMode) */
+        body.dark-mode { background-color: #1a1a1a; color: #e0e0e0; }
+        body.dark-mode header { background-color: #2c2c2c; }
+        body.dark-mode .controls, body.dark-mode .chart-container, body.dark-mode #event-details { background-color: #2c2c2c; box-shadow: 0 2px 4px rgba(0,0,0,0.5); }
+        body.dark-mode .chart-container h3 { color: #bdbdbd; border-bottom-color: #555; }
+        body.dark-mode .filter-group input, body.dark-mode .filter-group select { background-color: #444; border-color: #555; color: #e0e0e0; }
+        body.dark-mode #statusMessage { color: #ffab40; }
+        
+        /* Detalhes do Evento */
+        #event-details { display: none; border-left: 5px solid #009688; }
+        #event-details h4 { color: #009688; }
     </style>
 </head>
 <body>
@@ -27,52 +40,58 @@
     </header>
 
     <div class="container">
+        
         <div class="controls">
-            <h2>Filtros de Dados</h2>
-            <div class="filter-group">
-                <label for="date-select">1. Selecionar Data do Arquivo (.csv):</label>
-                <select id="date-select">
-                    <option value="">Carregando datas...</option>
-                </select>
-                <button onclick="loadData()">Carregar Dados</button>
+            <div style="float: right;">
+                <label for="checkbox" style="font-weight: normal; margin-right: 0;">Tema Escuro</label>
+                <input type="checkbox" id="checkbox" style="margin-right: 0;">
+            </div>
+            
+            <h2>Filtros e Dados</h2>
+            <div id="statusMessage">Carregando dados...</div>
+            
+            <div class="filter-group" style="margin-top: 15px;">
+                <label for="dateSelect">1. Data do Arquivo (.csv):</label>
+                <input type="text" id="dateSelect" placeholder="DD-MM-YY" value="27-10-25" style="width: 80px;">
+                <button onclick="initMonitor()">Buscar Data</button>
             </div>
             
             <div class="filter-group" style="margin-top: 15px;">
-                <label for="hostname-select">2. Filtrar por Máquina (Hostname):</label>
-                <select id="hostname-select">
+                <label for="hostnameFilter">2. Filtrar por Máquina (Hostname):</label>
+                <select id="hostnameFilter">
                     <option value="all">Todas as Máquinas</option>
                 </select>
 
-                <label for="time-start">3. Intervalo de Horário:</label>
-                <input type="time" id="time-start" value="00:00">
-                <label for="time-end">até</label>
-                <input type="time" id="time-end" value="23:59">
+                <label for="startTime">3. Intervalo de Horário:</label>
+                <input type="time" id="startTime" value="00:00">
+                <label for="endTime">até</label>
+                <input type="time" id="endTime" value="23:59">
                 
-                <button onclick="filterData()">Aplicar Filtros</button>
+                <button id="applyFiltersButton">Aplicar Filtros</button>
             </div>
         </div>
-
-        <div class="chart-container">
-            <h3>Gráfico 1: Saúde Geral da Conexão (Meet Score)</h3>
-            <div id="chart-saude-meet"></div>
-        </div>
-
-        <div class="chart-container">
-            <h3>Gráfico 2: Saúde da Máquina (CPU, RAM, Disco)</h3>
-            <div id="chart-saude-maquina"></div>
-        </div>
-
-        <div class="chart-container">
-            <h3>Gráfico 3: Detalhe do Jitter (Variação de Latência do Meet)</h3>
-            <div id="chart-jitter"></div>
-        </div>
-
-        <div class="chart-container">
-            <h3>Gráfico 4: Detalhe da Rota (Latência por Hop do último registro)</h3>
-            <div id="chart-tracert"></div>
-        </div>
         
+        <div id="event-details">
+            <h2 style="margin-top: 0;">Detalhes do Evento Selecionado</h2>
+            <div id="event-content">Clique em um ponto no gráfico de "Saúde Geral" para ver os detalhes do Tracert.</div>
         </div>
+
+        <div class="chart-container">
+            <h3>Gráfico 1 & 3: Saúde Geral, Latência Média e Jitter (Meet)</h3>
+            <canvas id="meetChartCanvas" style="height: 350px;"></canvas>
+        </div>
+
+        <div class="chart-container">
+            <h3>Gráfico 2: Carga da Máquina (CPU, RAM, Disco)</h3>
+            <canvas id="maquinaChartCanvas" style="height: 350px;"></canvas>
+        </div>
+
+        <div class="chart-container">
+            <h3>Gráfico 4: Detalhe da Rota (Latência por Hop - Último Registro Filtrado)</h3>
+            <canvas id="tracertChartCanvas" style="height: 450px;"></canvas>
+        </div>
+
+    </div>
 
     <script src="script.js"></script>
 </body>
