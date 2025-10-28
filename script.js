@@ -129,7 +129,7 @@ function initMonitor() {
 
             if (allData.length === 0) {
                 statusElement.textContent = `Erro: Nenhuma linha de dados válida em ${fileName} ou arquivo vazio.`;
-                drawAllCharts([]); // Limpa a tela com dados vazios
+                drawAllCharts([]); // Limpa a tela
                 return;
             }
             
@@ -195,9 +195,10 @@ function filterChart() {
     drawAllCharts(filteredData);
 }
 
-// --- SOLUÇÃO ANTI-VAZAMENTO DE MEMÓRIA (Destruição Completa) ---
+// --- FUNÇÃO DE DESTRUIÇÃO E INICIALIZAÇÃO CORRIGIDA ---
+
 function destroyAllCharts() {
-    // 1. Destruição explícita e zera as referências (CRÍTICO!)
+    // 1. Destruição explícita e zera as referências
     if (chartInstanceMeet) chartInstanceMeet.destroy();
     if (chartInstanceMaquina) chartInstanceMaquina.destroy();
     if (chartInstanceVelocidade) chartInstanceVelocidade.destroy(); 
@@ -208,46 +209,15 @@ function destroyAllCharts() {
     chartInstanceVelocidade = null;
     chartInstanceTracert = null;
     
-    // 2. Remove o elemento CANVAS antigo e o recria.
-    // Esta é a única maneira de garantir que o contexto de desenho seja 100% limpo.
-    const containerIds = ['chart-saude-meet', 'chart-saude-maquina', 'chart-velocidade', 'chart-tracert'];
-
-    containerIds.forEach(containerId => {
-        const container = document.getElementById(containerId);
-        const oldCanvas = container ? container.querySelector('canvas') : null;
-        if (oldCanvas) {
-            oldCanvas.remove();
-        }
-    });
+    // Opcional: Aqui você pode adicionar lógica para limpar as caixas se necessário
 }
-
-// Função auxiliar para obter o contexto do canvas (Garante que um canvas limpo exista)
-function getChartContext(containerId, canvasId) {
-    const container = document.getElementById(containerId);
-    if (!container) return null;
-    
-    // 1. Cria um novo canvas com o ID necessário
-    const newCanvas = document.createElement('canvas');
-    newCanvas.id = canvasId;
-
-    // 2. Anexa o novo canvas após o título (se houver)
-    const titleElement = container.querySelector('h3');
-    if (titleElement) {
-        container.insertBefore(newCanvas, titleElement.nextSibling);
-    } else {
-        container.appendChild(newCanvas);
-    }
-
-    return newCanvas.getContext('2d');
-}
-
 
 function updateChartTheme(isDark) {
     drawAllCharts(currentDataToDisplay);
 }
 
 function drawAllCharts(dataToDisplay) {
-    // 1. Destrói TUDO antes de prosseguir
+    // 1. Limpeza Garantida
     destroyAllCharts(); 
     
     if (dataToDisplay.length === 0) {
@@ -262,6 +232,12 @@ function drawAllCharts(dataToDisplay) {
     drawVelocidadeChart(dataToDisplay, isDark);
     drawMeetCharts(dataToDisplay, isDark);
     drawTracertChart(dataToDisplay[dataToDisplay.length - 1], isDark);
+}
+
+// Função auxiliar para obter o contexto do canvas (SOLUÇÃO ESTÁVEL)
+function getChartContext(canvasId) {
+    const canvas = document.getElementById(canvasId);
+    return canvas ? canvas.getContext('2d') : null;
 }
 
 // -----------------------------------
@@ -282,7 +258,7 @@ function drawMaquinaChart(dataToDisplay, isDark) {
     const maxUsage = d3.max(allUsage) || 10; 
     const usageMaxScale = Math.max(50, Math.ceil(maxUsage / 10) * 10); 
     
-    const ctxMaquina = getChartContext('chart-saude-maquina', 'maquinaChartCanvas');
+    const ctxMaquina = getChartContext('maquinaChartCanvas');
     if (!ctxMaquina) return;
     
     chartInstanceMaquina = new Chart(ctxMaquina, {
@@ -332,7 +308,7 @@ function drawVelocidadeChart(dataToDisplay, isDark) {
     let maxLatency = d3.max(dataLatency) || 50;
     const latencyMaxScale = Math.max(50, Math.ceil(maxLatency / 50) * 50);
 
-    const ctxVelocidade = getChartContext('chart-velocidade', 'velocidadeChartCanvas');
+    const ctxVelocidade = getChartContext('velocidadeChartCanvas');
     if (!ctxVelocidade) return;
     
     chartInstanceVelocidade = new Chart(ctxVelocidade, {
@@ -384,7 +360,7 @@ function drawMeetCharts(dataToDisplay, isDark) {
     let maxLatJitter = d3.max(dataJitter.concat(dataLatency)) || 10;
     const latencyMaxScale = Math.max(50, Math.ceil(maxLatJitter / 25) * 25); 
 
-    const ctxMeet = getChartContext('chart-saude-meet', 'meetChartCanvas');
+    const ctxMeet = getChartContext('meetChartCanvas');
     if (!ctxMeet) return;
     
     chartInstanceMeet = new Chart(ctxMeet, {
