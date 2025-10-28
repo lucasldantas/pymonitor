@@ -18,7 +18,7 @@
             --bg-light: #f7f7f7;
             --bg-card: #ffffff;
             --text-dark: #2c3e50;
-            --primary: #3498db; /* Azul moderno */
+            --primary: #3498db; 
             --shadow: 0 4px 8px rgba(0, 0, 0, 0.05);
             --border: #e0e0e0;
         }
@@ -27,7 +27,7 @@
             --bg-light: #1e2124;
             --bg-card: #282b30;
             --text-dark: #ffffff;
-            --primary: #7289da; /* Roxo/Azul escuro */
+            --primary: #7289da; 
             --shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
             --border: #444;
         }
@@ -54,7 +54,7 @@
             margin-bottom: 20px;
         }
 
-        /* Filtros */
+        /* FILTROS */
         .filter-group { display: flex; align-items: center; flex-wrap: wrap; margin-bottom: 15px; }
         .filter-group label { margin-right: 15px; font-weight: 500; min-width: 150px; }
         .filter-group input, .filter-group select { 
@@ -66,7 +66,6 @@
             color: var(--text-dark);
             transition: border-color 0.3s;
         }
-        .filter-group input:focus, .filter-group select:focus { border-color: var(--primary); outline: none; }
         .controls button { 
             padding: 10px 20px; 
             background-color: var(--primary); 
@@ -77,17 +76,21 @@
             font-weight: bold; 
             transition: background-color 0.3s;
         }
-        .controls button:hover { background-color: #2980b9; }
-
-        /* Status e Tema */
-        #statusMessage { margin-top: 10px; font-weight: 700; color: #e74c3c; }
-        .dark-mode #statusMessage { color: #f39c12; }
-        .theme-toggle-container { margin-left: auto; display: flex; align-items: center; }
-
+        
+        /* SOLUÇÃO DE TAMANHO FIXO (CRÍTICA) */
+        .chart-container {
+            position: relative; 
+        }
+        .chart-container canvas {
+            /* Define a altura mínima/máxima para estabilizar o Chart.js */
+            min-height: 350px; 
+            max-height: 500px;
+            width: 100% !important; 
+            height: 100% !important; 
+        }
+        
         /* Detalhes do Evento */
         #event-details { display: none; border-left: 5px solid #27ae60; }
-        #event-details h4 { color: #27ae60; }
-        #event-content p { margin: 5px 0; font-size: 0.95em; }
     </style>
 </head>
 <body>
