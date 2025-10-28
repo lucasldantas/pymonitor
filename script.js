@@ -7,7 +7,7 @@ let currentDataToDisplay = [];
 const AUTO_UPDATE_INTERVAL = 10 * 60 * 1000; // 10 minutos em milissegundos
 let autoUpdateTimer = null; 
 const BASE_CSV_URL = './'; // Caminho relativo para o GitHub Pages
-const MAX_TTL = 30; // Limite fixo de hops para o CSV (Deve ser igual ao Python)
+const MAX_TTL = 30; // Limite fixo de hops para o CSV
 
 // --------------------------------------------------------------------------
 // Funções Auxiliares
@@ -31,12 +31,14 @@ function typeConverter(row) {
 
     const newRow = {};
     for (const key in row) {
+        // Sanitiza a chave e remove espaços e caracteres especiais
         const cleanKey = key.replace(/[\(\)%]/g, '').replace(/ /g, '_').replace('.', ''); 
         newRow[cleanKey] = row[key];
     }
     
     newRow.Timestamp = new Date(newRow.Timestamp);
     
+    // Conversões para float/int
     newRow.Uso_CPU = parseFloat(newRow.Uso_CPU) || 0;
     newRow.Uso_RAM = parseFloat(newRow.Uso_RAM) || 0;
     newRow.Uso_Disco = parseFloat(newRow.Uso_Disco) || 0;
@@ -93,7 +95,7 @@ function startAutoUpdate() {
 }
 
 // --------------------------------------------------------------------------
-// Lógica de Carregamento e PapaParse (ESTABILIDADE GARANTIDA)
+// Lógica de Carregamento e PapaParse 
 // --------------------------------------------------------------------------
 
 function initMonitor() {
@@ -117,7 +119,6 @@ function initMonitor() {
         skipEmptyLines: true,
         worker: false, // Desabilita worker para evitar falhas em caminhos relativos
         downloadRequestHeaders: {
-            // Força a requisição a ignorar o cache e buscar a versão mais recente
             'Cache-Control': 'no-cache', 
             'Pragma': 'no-cache',
             'If-Modified-Since': 'Sat, 01 Jan 2000 00:00:00 GMT'
@@ -196,7 +197,6 @@ function filterChart() {
 }
 
 function destroyAllCharts() {
-    // Destrói as instâncias Chart.js existentes
     if (chartInstanceMeet) chartInstanceMeet.destroy();
     if (chartInstanceMaquina) chartInstanceMaquina.destroy();
     if (chartInstanceTracert) chartInstanceTracert.destroy();
@@ -431,10 +431,10 @@ function displayEventDetails(dataRow) {
     const detailsContainer = document.getElementById('event-details');
     const content = document.getElementById('event-content');
 
+    // REMOVIDA A CHAVE 'Usuario'
     const primaryFields = [
         { label: "Timestamp", key: "Timestamp", format: d => d.toLocaleString('pt-BR') },
         { label: "Hostname", key: "Hostname" },
-        { label: "Usuário Logado", key: "Usuario" },
         { label: "Localização", key: "Cidade" },
         { label: "IP Público", key: "IP_Publico" },
         { label: "Provedor", key: "Provedor" },
