@@ -1,136 +1,176 @@
 // VARIÁVEIS GLOBAIS
-const REPO_OWNER = 'lucasldantas';
-const REPO_NAME = 'pymonitor';
+let allData = [];
+let chartInstanceMeet = null;
+let chartInstanceMaquina = null;
+let chartInstanceTracert = null;
+let currentDataToDisplay = []; 
+const AUTO_UPDATE_INTERVAL = 10 * 60 * 1000; // 10 minutos em milissegundos
+let autoUpdateTimer = null; 
+const BASE_CSV_URL = './'; // Caminho relativo para o GitHub Pages
 
-// CORREÇÃO CRÍTICA: Usamos o caminho relativo './' para acessar o arquivo no GitHub Pages.
-// Isso evita o rate limit do link raw.githubusercontent.com.
-const BASE_CSV_URL = `./`; 
+// --------------------------------------------------------------------------
+// Funções Auxiliares
+// --------------------------------------------------------------------------
 
-let currentData = []; // Armazena todos os dados carregados do CSV
-let currentFileName = ''; // Nome do arquivo CSV atual
-let globalHeaders = []; // Armazena o cabeçalho do CSV
-let isDataLoaded = false;
-let maxHops = 30; // Deve ser igual ao MAX_TTL do Python
-
-// Função auxiliar para converter o valor do campo para o tipo correto
-function typeConverter(d) {
-    // Conversões de Data/Hora
-    d.Timestamp = new Date(d.Timestamp);
-    
-    // Conversões de números (forcamos para float/int)
-    d['Uso_CPU(%)'] = parseFloat(d['Uso_CPU(%)']);
-    d['Uso_RAM(%)'] = parseFloat(d['Uso_RAM(%)']);
-    d['Uso_Disco(%)'] = parseFloat(d['Uso_Disco(%)']);
-    d['Carga_Computador(0-100)'] = parseInt(d['Carga_Computador(0-100)']);
-    d['Download(Mbps)'] = parseFloat(d['Download(Mbps)']);
-    d['Upload(Mbps)'] = parseFloat(d['Upload(Mbps)']);
-    d['Latencia_Speedtest(ms)'] = parseFloat(d['Latencia_Speedtest(ms)']);
-    d['Saude_Meet(0-100)'] = parseInt(d['Saude_Meet(0-100)']);
-    d['Latencia_Meet_Media(ms)'] = parseFloat(d['Latencia_Meet_Media(ms)']);
-    d['Jitter_Meet(ms)'] = parseFloat(d['Jitter_Meet(ms)']);
-    d['Perda_Meet(%)'] = parseFloat(d['Perda_Meet(%)']);
-    
-    // Converte a Latência dos Hops para float
-    const baseCols = 17;
-    for(let i = 1; i <= maxHops; i++) {
-        let latKey = `Hop_LAT_${String(i).padStart(2, '0')}(ms)`;
-        // O valor pode vir como string vazia se for preenchimento (padding)
-        if (d[latKey] === "" || d[latKey] === "0" || d[latKey] === null) {
-            d[latKey] = 0;
-        } else {
-            d[latKey] = parseFloat(d[latKey]);
-        }
-    }
-
-    return d;
+function getCurrentDateFormatted() {
+    const today = new Date();
+    const dd = String(today.getDate()).padStart(2, '0');
+    const mm = String(today.getMonth() + 1).padStart(2, '0');
+    const yy = String(today.getFullYear()).slice(-2);
+    return `${dd}-${mm}-${yy}`;
 }
 
-// ----------------------------------------------------------------------
-// 1. LÓGICA DE CARREGAMENTO E INICIALIZAÇÃO
-// ----------------------------------------------------------------------
-
-// Função para buscar a lista de arquivos no repositório
-async function fetchAvailableDates() {
-    // Busca a lista de arquivos através da API do GitHub (NÃO TEM RATE LIMIT para esta chamada)
-    const apiURL = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/`;
-    const select = document.getElementById('date-select');
-
-    try {
-        const response = await fetch(apiURL);
-        const files = await response.json();
-        
-        // Filtra apenas arquivos CSV que seguem o padrão py_monitor_DD-MM-AA.csv
-        const csvFiles = files
-            .filter(file => file.name.startsWith('py_monitor_') && file.name.endsWith('.csv'))
-            .map(file => file.name)
-            .sort(); // Garante a ordem correta
-
-        select.innerHTML = '';
-        if (csvFiles.length === 0) {
-            select.innerHTML = '<option value="">Nenhum arquivo CSV encontrado.</option>';
-            return;
-        }
-
-        csvFiles.forEach(fileName => {
-            const option = document.createElement('option');
-            option.value = fileName;
-            option.textContent = fileName.replace('py_monitor_', '').replace('.csv', '');
-            select.appendChild(option);
-        });
-
-        // Seleciona o arquivo mais recente
-        select.value = csvFiles[csvFiles.length - 1];
-        
-        loadData(); // Carrega o arquivo mais recente automaticamente
-
-    } catch (error) {
-        select.innerHTML = '<option value="">Erro ao carregar arquivos.</option>';
-        console.error('Erro ao buscar lista de arquivos do GitHub:', error);
-    }
+function getFileName() {
+    // MODIFICAÇÃO: Retorna o nome do arquivo no novo formato
+    const date = document.getElementById('dateSelect').value;
+    return `py_monitor_${date}.csv`;
 }
 
-// Função principal para carregar o CSV
-function loadData() {
-    currentFileName = document.getElementById('date-select').value;
-    if (!currentFileName) return;
+// Converte strings do CSV em tipos corretos
+function typeConverter(row) {
+    if (!row.Timestamp) return null; // Ignora linhas sem Timestamp
 
-    // A URL agora aponta para o caminho relativo no GitHub Pages
-    const fullURL = BASE_CSV_URL + currentFileName; 
+    // 1. Conversão de Tipos e Sanitização de Nomes
+    const newRow = {};
+    for (const key in row) {
+        // Remove parênteses e caracteres especiais para facilitar o acesso
+        const cleanKey = key.replace(/[\(\)%]/g, '').replace(' ', '_');
+        newRow[cleanKey] = row[key];
+    }
     
-    // Cachebuster: Adiciona um timestamp para garantir que o navegador não use um arquivo antigo
-    const cachebusterURL = `${fullURL}?t=${new Date().getTime()}`;
+    // 2. Conversão de Tipos
+    newRow.Timestamp = new Date(newRow.Timestamp);
+    
+    newRow.Uso_CPU = parseFloat(newRow.Uso_CPU) || 0;
+    newRow.Uso_RAM = parseFloat(newRow.Uso_RAM) || 0;
+    newRow.Uso_Disco = parseFloat(newRow.Uso_Disco) || 0;
+    newRow.Carga_Computador = parseInt(newRow.Carga_Computador) || 0;
+    newRow.DownloadMbps = parseFloat(newRow.DownloadMbps) || 0;
+    newRow.UploadMbps = parseFloat(newRow.UploadMbps) || 0;
+    newRow.Latencia_Speedtestms = parseFloat(newRow.Latencia_Speedtestms) || 0;
+    newRow.Saude_Meet0100 = parseInt(newRow.Saude_Meet0100) || 0;
+    newRow.Latencia_Meet_Mediaps = parseFloat(newRow.Latencia_Meet_Mediaps) || 0;
+    newRow.Jitter_Meetms = parseFloat(newRow.Jitter_Meetms) || 0;
+    newRow.Perda_Meet = parseFloat(newRow.Perda_Meet) || 0;
 
-    console.log('Tentando carregar CSV de:', fullURL);
+    // 3. Conversão de Dados de Tracert (para Gráfico)
+    for (let i = 1; i <= 30; i++) {
+        const ipKey = `Hop_IP_${String(i).padStart(2, '0')}`;
+        const latKey = `Hop_LAT_${String(i).padStart(2, '0')}ms`;
+        
+        // Converte Latência para número. "" ou "N/A" se tornam 0.
+        newRow[latKey] = parseFloat(newRow[latKey]) || 0;
+    }
+    
+    return newRow;
+}
 
-    d3.csv(cachebusterURL, typeConverter).then(data => {
-        currentData = data;
-        if (data.length > 0) {
-            globalHeaders = Object.keys(data[0]);
+
+// --------------------------------------------------------------------------
+// Lógica de Tema e Inicialização
+// --------------------------------------------------------------------------
+
+function toggleDarkMode() {
+    const isDark = document.body.classList.toggle('dark-mode');
+    localStorage.setItem('darkMode', isDark);
+    updateChartTheme(isDark);
+}
+
+function applySavedTheme() {
+    const savedTheme = localStorage.getItem('darkMode');
+    const checkbox = document.getElementById('checkbox');
+    
+    if (savedTheme === 'true') {
+        document.body.classList.add('dark-mode');
+        checkbox.checked = true;
+    }
+    
+    checkbox.addEventListener('change', toggleDarkMode);
+    updateChartTheme(savedTheme === 'true');
+}
+
+function startAutoUpdate() {
+    if (autoUpdateTimer) {
+        clearInterval(autoUpdateTimer);
+    }
+    
+    autoUpdateTimer = setInterval(() => {
+        console.log(`Autoatualizando dados...`);
+        initMonitor();
+    }, AUTO_UPDATE_INTERVAL);
+
+    console.log(`Autoatualização configurada para cada ${AUTO_UPDATE_INTERVAL / 60000} minutos.`);
+}
+
+window.onload = function() {
+    applySavedTheme();
+    // Ajusta o seletor de data
+    document.getElementById('dateSelect').value = getCurrentDateFormatted();
+    
+    document.getElementById('hostnameFilter').value = ""; // Limpa filtro de hostname ao carregar
+    
+    // Adiciona listener nos filtros
+    document.getElementById('dateSelect').addEventListener('change', initMonitor);
+    document.getElementById('hostnameFilter').addEventListener('change', filterChart); 
+
+    initMonitor(); 
+    startAutoUpdate();
+}
+
+// --------------------------------------------------------------------------
+// Lógica de Carregamento e PapaParse
+// --------------------------------------------------------------------------
+
+function initMonitor() {
+    const statusElement = document.getElementById('statusMessage');
+    const fileName = getFileName();
+    const fullURL = BASE_CSV_URL + fileName;
+
+    statusElement.textContent = `Carregando: ${fileName}...`;
+    allData = []; 
+    currentDataToDisplay = [];
+
+    // Limpa filtros do Hostname e horário
+    document.getElementById('startTime').value = "00:00";
+    document.getElementById('endTime').value = "23:59";
+
+    Papa.parse(fullURL, {
+        download: true, 
+        header: true,   
+        skipEmptyLines: true,
+        // Usa a função de conversão adaptada
+        worker: true, // Usa um worker para grandes arquivos
+        complete: function(results) {
             
-            // Re-calcula maxHops com base no cabeçalho do arquivo
-            const baseCols = 17;
-            const actualTotalCols = globalHeaders.length;
-            if (actualTotalCols > baseCols) {
-                maxHops = (actualTotalCols - baseCols) / 2;
-                console.log(`CSV carregado. Hops ajustados para ${maxHops}.`);
-            }
+            // Filtra linhas que foram convertidas com sucesso
+            allData = results.data.map(typeConverter).filter(row => row !== null); 
 
-            populateHostnames(data);
-            isDataLoaded = true;
-            filterData(); // Filtra e desenha com dados padrão
-        } else {
-            alert('O arquivo CSV está vazio.');
+            if (allData.length === 0) {
+                statusElement.textContent = `Erro: Nenhuma linha de dados válida em ${fileName} ou arquivo não encontrado.`;
+                destroyAllCharts();
+                return;
+            }
+            
+            statusElement.textContent = `Sucesso! Carregado ${allData.length} registros de ${fileName}.`;
+
+            populateHostnames(allData); // Preenche o seletor de hostname
+            filterChart(); 
+        },
+        error: function(error) {
+            console.error("Erro ao carregar o CSV:", error);
+            statusElement.textContent = `ERRO: Não foi possível carregar o arquivo ${fileName}. Verifique o nome/data.`;
+            destroyAllCharts();
         }
-    }).catch(error => {
-        console.error('Erro de carregamento D3.js. URL:', fullURL, 'Detalhe:', error);
-        alert(`Erro ao carregar o arquivo: ${currentFileName}. Verifique se o nome está correto e se o arquivo existe.`);
     });
 }
 
-// Preenche o filtro de Hostname
 function populateHostnames(data) {
     const hostnames = [...new Set(data.map(d => d.Hostname))];
-    const select = document.getElementById('hostname-select');
+    const select = document.getElementById('hostnameFilter');
+    
+    // Preserva o valor atual do filtro se possível
+    const selectedValue = select.value;
+
     select.innerHTML = '<option value="all">Todas as Máquinas</option>';
     hostnames.forEach(host => {
         const option = document.createElement('option');
@@ -138,288 +178,370 @@ function populateHostnames(data) {
         option.textContent = host;
         select.appendChild(option);
     });
+
+    if (hostnames.includes(selectedValue)) {
+         select.value = selectedValue;
+    }
 }
 
 
-// ----------------------------------------------------------------------
-// 2. LÓGICA DE FILTRAGEM E VISUALIZAÇÃO
-// ----------------------------------------------------------------------
+// --------------------------------------------------------------------------
+// Lógica de Filtro
+// --------------------------------------------------------------------------
 
-function filterData() {
-    if (!isDataLoaded) return;
+function filterChart() {
+    const startTimeStr = document.getElementById('startTime').value;
+    const endTimeStr = document.getElementById('endTime').value;
+    const hostnameFilter = document.getElementById('hostnameFilter').value;
 
-    const hostnameFilter = document.getElementById('hostname-select').value;
-    const timeStartStr = document.getElementById('time-start').value;
-    const timeEndStr = document.getElementById('time-end').value;
-
-    let filteredData = currentData;
-
-    // 1. Filtro por Hostname
-    if (hostnameFilter !== 'all') {
-        filteredData = filteredData.filter(d => d.Hostname === hostnameFilter);
+    if (!allData || allData.length === 0) {
+        currentDataToDisplay = [];
+        return; 
     }
 
-    // 2. Filtro por Horário (usando a coluna Timestamp)
-    if (timeStartStr && timeEndStr) {
-        const [hStart, mStart] = timeStartStr.split(':').map(Number);
-        const [hEnd, mEnd] = timeEndStr.split(':').map(Number);
+    const filteredData = allData.filter(row => {
+        const timestamp = row.Timestamp;
+        if (!(timestamp instanceof Date)) return false; // Ignora se não for data válida
+        
+        const timeOnly = timestamp.toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit', hour12: false});
+        
+        const matchesHostname = hostnameFilter === 'all' || row.Hostname === hostnameFilter; 
+        
+        // Conversão de horário para comparação HH:MM
+        const isWithinTime = timeOnly >= startTimeStr && timeOnly <= endTimeStr;
 
-        filteredData = filteredData.filter(d => {
-            if (!(d.Timestamp instanceof Date) || isNaN(d.Timestamp.getTime())) return false;
-            
-            const hours = d.Timestamp.getHours();
-            const minutes = d.Timestamp.getMinutes();
-            
-            const timeInMinutes = hours * 60 + minutes;
-            const startMinutes = hStart * 60 + mStart;
-            const endMinutes = hEnd * 60 + mEnd;
+        return isWithinTime && matchesHostname;
+    });
 
-            return timeInMinutes >= startMinutes && timeInMinutes <= endMinutes;
-        });
-    }
+    currentDataToDisplay = filteredData;
+    document.getElementById('event-details').style.display = 'none';
 
-    if (filteredData.length === 0) {
-        alert('Nenhum dado encontrado com os filtros aplicados.');
-        // Limpa os gráficos
-        document.getElementById('chart-saude-meet').innerHTML = 'Nenhum dado para mostrar.';
-        document.getElementById('chart-saude-maquina').innerHTML = '';
-        document.getElementById('chart-jitter').innerHTML = '';
-        document.getElementById('chart-tracert').innerHTML = 'Nenhum dado de rota para o último registro.';
+    drawAllCharts(filteredData);
+}
+
+// --------------------------------------------------------------------------
+// Lógica de Gráfico (Chart.js)
+// --------------------------------------------------------------------------
+
+function destroyAllCharts() {
+    if (chartInstanceMeet) chartInstanceMeet.destroy();
+    if (chartInstanceMaquina) chartInstanceMaquina.destroy();
+    if (chartInstanceTracert) chartInstanceTracert.destroy();
+    document.getElementById('chart-saude-meet').innerHTML = '<canvas id="meetChartCanvas"></canvas>';
+    document.getElementById('chart-saude-maquina').innerHTML = '<canvas id="maquinaChartCanvas"></canvas>';
+    document.getElementById('chart-tracert').innerHTML = '<canvas id="tracertChartCanvas"></canvas>';
+}
+
+function updateChartTheme(isDark) {
+    // Redesenha todos os gráficos para aplicar o tema
+    drawAllCharts(currentDataToDisplay);
+}
+
+function drawAllCharts(dataToDisplay) {
+    destroyAllCharts(); 
+    
+    if (dataToDisplay.length === 0) {
+        document.getElementById('statusMessage').textContent = "Nenhum dado encontrado no intervalo ou Hostname selecionado.";
         return;
     }
 
-    // 3. Desenha todos os gráficos
-    drawSaudeMeetChart(filteredData);
-    drawSaudeMaquinaChart(filteredData);
-    drawJitterChart(filteredData);
-    // Plota o tracert apenas do último registro filtrado
-    drawTracertChart(filteredData[filteredData.length - 1]); 
+    const isDark = document.body.classList.contains('dark-mode');
+    
+    drawMeetCharts(dataToDisplay, isDark);
+    drawMaquinaChart(dataToDisplay, isDark);
+    drawTracertChart(dataToDisplay[dataToDisplay.length - 1], isDark);
 }
 
-// ----------------------------------------------------------------------
-// 3. FUNÇÕES DE DESENHO DE GRÁFICOS (Usando D3)
-// ----------------------------------------------------------------------
-
-// Função para desenhar o gráfico de Linha (Saúde do Meet)
-function drawSaudeMeetChart(data) {
-    const margin = {top: 20, right: 30, bottom: 30, left: 40},
-        width = 1160 - margin.left - margin.right,
-        height = 300 - margin.top - margin.bottom;
-
-    d3.select("#chart-saude-meet").select("svg").remove();
-
-    const svg = d3.select("#chart-saude-meet")
-        .append("svg")
-        .attr("width", width + margin.left + margin.right)
-        .attr("height", height + margin.top + margin.bottom)
-        .append("g")
-        .attr("transform", `translate(${margin.left},${margin.top})`);
-
-    // Escalas
-    const x = d3.scaleTime()
-        .domain(d3.extent(data, d => d.Timestamp))
-        .range([0, width]);
+// -----------------------------------
+// GRÁFICO 1 & 3: SAÚDE E JITTER DO MEET
+// -----------------------------------
+function drawMeetCharts(dataToDisplay, isDark) {
+    const labels = dataToDisplay.map(row => row.Timestamp.toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'}));
+    const dataScores = dataToDisplay.map(row => row.Saude_Meet0100);
+    const dataJitter = dataToDisplay.map(row => row.Jitter_Meetms); 
+    const dataLatency = dataToDisplay.map(row => row.Latencia_Meet_Mediaps);
     
-    const y = d3.scaleLinear()
-        .domain([0, 100]) // Saúde vai de 0 a 100
-        .range([height, 0]);
-
-    // Eixos
-    svg.append("g")
-        .attr("transform", `translate(0,${height})`)
-        .call(d3.axisBottom(x).ticks(d3.timeHour.every(2)).tickFormat(d3.timeFormat("%H:%M")));
-
-    svg.append("g")
-        .call(d3.axisLeft(y));
-
-    // Linha (Saúde do Meet)
-    svg.append("path")
-        .datum(data)
-        .attr("fill", "none")
-        .attr("stroke", "#4CAF50")
-        .attr("stroke-width", 2.5)
-        .attr("d", d3.line()
-            .x(d => x(d.Timestamp))
-            .y(d => y(d['Saude_Meet(0-100)']))
-        );
-}
-
-// Função para desenhar o gráfico de Linhas Múltiplas (Saúde da Máquina)
-function drawSaudeMaquinaChart(data) {
-    const margin = {top: 20, right: 30, bottom: 30, left: 40},
-        width = 1160 - margin.left - margin.right,
-        height = 300 - margin.top - margin.bottom;
-
-    d3.select("#chart-saude-maquina").select("svg").remove();
-
-    const svg = d3.select("#chart-saude-maquina")
-        .append("svg")
-        .attr("width", width + margin.left + margin.right)
-        .attr("height", height + margin.top + margin.bottom)
-        .append("g")
-        .attr("transform", `translate(${margin.left},${margin.top})`);
-
-    const x = d3.scaleTime()
-        .domain(d3.extent(data, d => d.Timestamp))
-        .range([0, width]);
+    const color = isDark ? '#f0f0f0' : '#333';
+    const gridColor = isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)';
     
-    const y = d3.scaleLinear()
-        .domain([0, 100]) // Uso vai de 0 a 100%
-        .range([height, 0]);
-        
-    const color = d3.scaleOrdinal()
-        .domain(['CPU', 'RAM', 'Disco'])
-        .range(['#F44336', '#2196F3', '#FFC107']);
+    // Escala Jitter/Latência
+    let maxLatJitter = Math.max(d3.max(dataJitter) || 0, d3.max(dataLatency) || 0) * 1.2;
+    const latencyMaxScale = Math.ceil((maxLatJitter + 10) / 50) * 50; 
 
-    // Eixos
-    svg.append("g")
-        .attr("transform", `translate(0,${height})`)
-        .call(d3.axisBottom(x).ticks(d3.timeHour.every(2)).tickFormat(d3.timeFormat("%H:%M")));
-    svg.append("g").call(d3.axisLeft(y));
-
-    // Desenha as Linhas
-    const lines = [
-        {key: 'Uso_CPU(%)', label: 'CPU'},
-        {key: 'Uso_RAM(%)', label: 'RAM'},
-        {key: 'Uso_Disco(%)', label: 'Disco'}
-    ];
-
-    lines.forEach(line => {
-        svg.append("path")
-            .datum(data)
-            .attr("fill", "none")
-            .attr("stroke", color(line.label))
-            .attr("stroke-width", 1.5)
-            .attr("d", d3.line()
-                .defined(d => !isNaN(d[line.key])) 
-                .x(d => x(d.Timestamp))
-                .y(d => y(d[line.key]))
-            );
+    // Chart de Saúde Geral (Score)
+    const ctxMeet = document.getElementById('meetChartCanvas').getContext('2d');
+    chartInstanceMeet = new Chart(ctxMeet, {
+        type: 'line', 
+        data: {
+            labels: labels,
+            datasets: [{
+                label: 'Saúde Geral (Score 0-100)',
+                data: dataScores,
+                yAxisID: 'y-score', 
+                borderColor: '#4CAF50',
+                backgroundColor: 'rgba(76, 175, 80, 0.1)',
+                tension: 0.3, pointRadius: 5, fill: true,
+                order: 1
+            },
+            {
+                label: 'Jitter (Variação da Latência)',
+                data: dataJitter,
+                yAxisID: 'y-latency', 
+                borderColor: '#FFC107',
+                backgroundColor: 'rgba(255, 193, 7, 0.1)',
+                tension: 0.3, pointRadius: 3, fill: false,
+                order: 2
+            },
+            {
+                label: 'Latência Média',
+                data: dataLatency,
+                yAxisID: 'y-latency', 
+                borderColor: '#2196F3',
+                backgroundColor: 'rgba(33, 150, 243, 0.1)',
+                tension: 0.3, pointRadius: 3, fill: false,
+                borderDash: [5, 5],
+                order: 3
+            }]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false, color: color, 
+            interaction: { mode: 'index', intersect: false },
+            onClick: handleChartClick,
+            scales: {
+                x: { title: { display: true, text: 'Horário (HH:MM)', color: color }, grid: { color: gridColor }, ticks: { color: color } },
+                'y-score': { 
+                    type: 'linear', position: 'left', min: 0, max: 100, 
+                    title: { display: true, text: 'Saúde Meet (Score)', color: color },
+                    grid: { color: gridColor }, ticks: { color: color, stepSize: 25 }
+                },
+                'y-latency': { 
+                    type: 'linear', position: 'right', min: 0, max: latencyMaxScale, 
+                    title: { display: true, text: 'Latência / Jitter (ms)', color: color },
+                    grid: { drawOnChartArea: false, color: gridColor },
+                    ticks: { color: color }
+                }
+            },
+            plugins: { title: { display: true, text: `Saúde da Conexão e Jitter`, color: color }, legend: { labels: { color: color } } }
+        }
     });
 }
 
-// Função para desenhar o gráfico de Linha (Jitter)
-function drawJitterChart(data) {
-    const margin = {top: 20, right: 30, bottom: 30, left: 40},
-        width = 1160 - margin.left - margin.right,
-        height = 300 - margin.top - margin.bottom;
-
-    d3.select("#chart-jitter").select("svg").remove();
-
-    const svg = d3.select("#chart-jitter")
-        .append("svg")
-        .attr("width", width + margin.left + margin.right)
-        .attr("height", height + margin.top + margin.bottom)
-        .append("g")
-        .attr("transform", `translate(${margin.left},${margin.top})`);
-
-    const x = d3.scaleTime()
-        .domain(d3.extent(data, d => d.Timestamp))
-        .range([0, width]);
+// -----------------------------------
+// GRÁFICO 2: SAÚDE DA MÁQUINA
+// -----------------------------------
+function drawMaquinaChart(dataToDisplay, isDark) {
+    const labels = dataToDisplay.map(row => row.Timestamp.toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'}));
+    const dataCPU = dataToDisplay.map(row => row.Uso_CPU);
+    const dataRAM = dataToDisplay.map(row => row.Uso_RAM);
+    const dataDisco = dataToDisplay.map(row => row.Uso_Disco);
     
-    const y = d3.scaleLinear()
-        .domain([0, d3.max(data, d => d['Jitter_Meet(ms)']) * 1.2]) // Escala dinâmica
-        .range([height, 0]);
-
-    // Eixos
-    svg.append("g")
-        .attr("transform", `translate(0,${height})`)
-        .call(d3.axisBottom(x).ticks(d3.timeHour.every(2)).tickFormat(d3.timeFormat("%H:%M")));
-    svg.append("g").call(d3.axisLeft(y));
-
-    // Linha do Jitter
-    svg.append("path")
-        .datum(data)
-        .attr("fill", "none")
-        .attr("stroke", "#FF9800")
-        .attr("stroke-width", 2)
-        .attr("d", d3.line()
-            .x(d => x(d.Timestamp))
-            .y(d => y(d['Jitter_Meet(ms)']))
-        );
+    const color = isDark ? '#f0f0f0' : '#333';
+    const gridColor = isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)';
+    
+    const ctxMaquina = document.getElementById('maquinaChartCanvas').getContext('2d');
+    chartInstanceMaquina = new Chart(ctxMaquina, {
+        type: 'line', 
+        data: {
+            labels: labels,
+            datasets: [{
+                label: 'Uso de CPU (%)',
+                data: dataCPU,
+                borderColor: '#F44336', backgroundColor: 'rgba(244, 67, 54, 0.1)',
+                tension: 0.3, fill: true, order: 1, hidden: false
+            },
+            {
+                label: 'Uso de RAM (%)',
+                data: dataRAM,
+                borderColor: '#2196F3', backgroundColor: 'rgba(33, 150, 243, 0.1)',
+                tension: 0.3, fill: false, order: 2
+            },
+            {
+                label: 'Uso de Disco (%)',
+                data: dataDisco,
+                borderColor: '#FFC107', backgroundColor: 'rgba(255, 193, 7, 0.1)',
+                tension: 0.3, fill: false, order: 3
+            }]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false, color: color, 
+            scales: {
+                x: { title: { display: true, text: 'Horário (HH:MM)', color: color }, grid: { color: gridColor }, ticks: { color: color } },
+                y: { min: 0, max: 100, title: { display: true, text: 'Uso (%)', color: color }, grid: { color: gridColor }, ticks: { color: color } }
+            },
+            plugins: { title: { display: true, text: `Carga da Máquina (CPU, RAM, Disco)`, color: color }, legend: { labels: { color: color } } }
+        }
+    });
 }
 
-// Função para desenhar o gráfico de Rota (Tracert - Último Registro)
-function drawTracertChart(lastRecord) {
-    d3.select("#chart-tracert").select("svg").remove();
+// -----------------------------------
+// GRÁFICO 4: TRACERT (ÚLTIMO REGISTRO)
+// -----------------------------------
+function drawTracertChart(lastRecord, isDark) {
+    if (!lastRecord) return;
     
     const tracertData = [];
-    for (let i = 1; i <= maxHops; i++) {
+    const color = isDark ? '#f0f0f0' : '#333';
+    const gridColor = isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)';
+
+    for (let i = 1; i <= 30; i++) {
         const ipKey = `Hop_IP_${String(i).padStart(2, '0')}`;
-        const latKey = `Hop_LAT_${String(i).padStart(2, '0')}(ms)`;
+        const latKey = `Hop_LAT_${String(i).padStart(2, '0')}ms`;
         
         const ip = lastRecord[ipKey];
         const lat = lastRecord[latKey];
 
-        // Parar se o IP for vazio, N/A, ou se a latência for 0 (preenchimento)
-        if (!ip || ip === "" || ip === "N/A" || lat === 0) break;
+        // Se a latência for 0, é um hop perdido ou preenchimento
+        if (lat === 0 || lat === "" || ip === "") continue; 
 
         tracertData.push({
             hop: i,
-            ip: ip,
+            ip: ip.replace(' [DESTINO]', ''),
             latency: lat
         });
+
+        if (ip.includes("[DESTINO]")) break;
     }
     
     if (tracertData.length === 0) {
-        document.getElementById('chart-tracert').innerHTML = 'Nenhum dado de rota (Tracert) válido no último registro filtrado.';
+        document.getElementById('chart-tracert').innerHTML = 'Nenhum dado de rota (Tracert) válido para plotagem.';
         return;
     }
 
-    const margin = {top: 20, right: 30, bottom: 100, left: 50},
-        width = 1160 - margin.left - margin.right,
-        height = 400 - margin.top - margin.bottom;
-
-    const svg = d3.select("#chart-tracert")
-        .append("svg")
-        .attr("width", width + margin.left + margin.right)
-        .attr("height", height + margin.top + margin.bottom)
-        .append("g")
-        .attr("transform", `translate(${margin.left},${margin.top})`);
-
-    // Escalas
-    const x = d3.scaleBand()
-        .domain(tracertData.map(d => d.hop))
-        .range([0, width])
-        .padding(0.2);
-
-    const y = d3.scaleLinear()
-        .domain([0, d3.max(tracertData, d => d.latency) * 1.1])
-        .range([height, 0]);
-
-    // Eixos
-    svg.append("g")
-        .attr("transform", `translate(0,${height})`)
-        .call(d3.axisBottom(x))
-        .selectAll("text")
-        .attr("transform", "rotate(-45)")
-        .style("text-anchor", "end")
-        .text(d => `${d} (${tracertData.find(item => item.hop === d).ip.split(' [')[0]})`);
-
-    svg.append("g").call(d3.axisLeft(y));
+    const labels = tracertData.map(d => `Hop ${d.hop}`);
+    const dataLatencies = tracertData.map(d => d.latency);
+    const dataIps = tracertData.map(d => d.ip);
     
-    svg.append("text")
-        .attr("transform", "rotate(-90)")
-        .attr("y", 0 - margin.left)
-        .attr("x", 0 - (height / 2))
-        .attr("dy", "1em")
-        .style("text-anchor", "middle")
-        .text("Latência (ms)");
-
-    // Barras
-    svg.selectAll(".bar")
-        .data(tracertData)
-        .enter().append("rect")
-        .attr("class", "bar")
-        .attr("x", d => x(d.hop))
-        .attr("y", d => y(d.latency))
-        .attr("width", x.bandwidth())
-        .attr("height", d => height - y(d.latency))
-        .attr("fill", d => d.ip.includes("[DESTINO]") ? "#00796B" : "#FF5722");
+    const ctxTracert = document.getElementById('tracertChartCanvas').getContext('2d');
+    chartInstanceTracert = new Chart(ctxTracert, {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: 'Latência por Salto (ms)',
+                data: dataLatencies,
+                backgroundColor: dataIps.map(ip => ip.includes('DESTINO') ? '#00796B' : '#FF5722'),
+                borderColor: dataIps.map(ip => ip.includes('DESTINO') ? '#00796B' : '#FF5722'),
+                borderWidth: 1
+            }]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false, color: color,
+            scales: {
+                x: { 
+                    grid: { color: gridColor }, 
+                    ticks: { color: color, callback: (val, index) => `${labels[index]}\n(${dataIps[index]})` } 
+                },
+                y: { 
+                    title: { display: true, text: 'Latência (ms)', color: color }, 
+                    grid: { color: gridColor }, 
+                    ticks: { color: color } 
+                }
+            },
+            plugins: { 
+                title: { display: true, text: `Rota do Tracert (${lastRecord.Timestamp.toLocaleTimeString()})`, color: color }, 
+                legend: { display: false } 
+            }
+        }
+    });
 }
 
-// ----------------------------------------------------------------------
-// INICIALIZAÇÃO
-// ----------------------------------------------------------------------
+// --------------------------------------------------------------------------
+// Lógica de Detalhe de Evento (Adaptada para Novas Colunas)
+// --------------------------------------------------------------------------
 
-document.addEventListener('DOMContentLoaded', fetchAvailableDates);
+function displayEventDetails(dataRow) {
+    const detailsContainer = document.getElementById('event-details');
+    const content = document.getElementById('event-content');
+
+    // Campos principais
+    const primaryFields = [
+        { label: "Timestamp", key: "Timestamp", format: d => d.toLocaleString('pt-BR') },
+        { label: "Hostname", key: "Hostname" },
+        { label: "Usuário Logado", key: "Usuario" },
+        { label: "Localização", key: "Cidade" },
+        { label: "IP Público", key: "IP_Publico" },
+        { label: "Provedor", key: "Provedor" },
+        { label: "Download (Mbps)", key: "DownloadMbps", format: d => `${d.toFixed(2)}` },
+        { label: "Carga do PC (%)", key: "Carga_Computador" },
+        { label: "Saúde Meet (0-100)", key: "Saude_Meet0100" },
+        { label: "Jitter (ms)", key: "Jitter_Meetms", format: d => `${d.toFixed(2)}` },
+        { label: "Perda (%)", key: "Perda_Meet", format: d => `${d.toFixed(1)}` },
+    ];
+
+    let html = '';
+    
+    // 1. Adiciona campos principais
+    primaryFields.forEach(field => {
+        const value = dataRow[field.key];
+        const displayValue = field.format ? field.format(value) : value || 'N/A';
+        html += `<p><strong>${field.label}:</strong> ${displayValue}</p>`;
+    });
+
+    // 2. Adiciona Hops Dinamicamente
+    html += `<h4 style="margin-top: 15px; border-bottom: 1px solid #ccc; padding-bottom: 5px;">Detalhes do Rastreamento de Rota</h4>`;
+
+    let foundHops = false;
+    for (let i = 1; i <= 30; i++) {
+        const ipKey = `Hop_IP_${String(i).padStart(2, '0')}`;
+        const latencyKey = `Hop_LAT_${String(i).padStart(2, '0')}ms`;
+
+        const ip = dataRow[ipKey];
+        const latency = dataRow[latencyKey];
+        
+        // Exibe se o IP não for vazio
+        if (ip && ip.trim() !== '') {
+            const latencyValue = latency ? `${latency.toFixed(2)} ms` : 'N/A';
+            html += `<p style="margin-top: 5px; margin-bottom: 5px;"><strong>Hop ${i}:</strong> ${ip} (${latencyValue})</p>`;
+            foundHops = true;
+        }
+    }
+    
+    if (!foundHops) {
+        html += `<p style="color: #999;">Nenhum dado de rastreamento de rota encontrado neste registro (requer execução com 'sudo').</p>`;
+    }
+
+    content.innerHTML = html;
+    detailsContainer.style.display = 'block';
+}
+
+function handleChartClick(event) {
+    // Verifica se a Chart.js está instalada
+    if (typeof Chart === 'undefined') return; 
+    
+    const points = chartInstanceMeet.getElementsAtEventForMode(event, 'index', { intersect: true }, false);
+
+    if (points.length === 0) {
+        document.getElementById('event-details').style.display = 'none';
+        return;
+    }
+
+    const dataIndex = points[0].index;
+    const clickedRow = currentDataToDisplay[dataIndex];
+
+    if (clickedRow) {
+        displayEventDetails(clickedRow);
+    }
+}
+
+
+document.addEventListener('DOMContentLoaded', () => {
+    // Certifique-se de que o PapaParse esteja disponível globalmente
+    if (typeof Papa === 'undefined') {
+        document.getElementById('statusMessage').textContent = 'ERRO: PapaParse (CSV Reader) não está carregado. Verifique seu index.html.';
+        return;
+    }
+    
+    // O Chart.js deve ser carregado separadamente no HTML
+    if (typeof Chart === 'undefined') {
+         document.getElementById('statusMessage').textContent = 'AVISO: Chart.js não carregado. Gráficos desabilitados.';
+    }
+    
+    applySavedTheme();
+    document.getElementById('dateSelect').value = getCurrentDateFormatted();
+    
+    // Adiciona listener para aplicar filtros no clique do botão
+    document.getElementById('applyFiltersButton').addEventListener('click', filterChart);
+
+    initMonitor(); 
+    startAutoUpdate();
+});
