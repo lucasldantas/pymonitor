@@ -6,7 +6,7 @@ let chartInstanceTracert = null;
 let currentDataToDisplay = []; 
 const AUTO_UPDATE_INTERVAL = 10 * 60 * 1000; // 10 minutos em milissegundos
 let autoUpdateTimer = null; 
-const BASE_CSV_URL = './'; // Caminho relativo para o GitHub Pages
+const BASE_CSV_URL = './'; 
 const MAX_TTL = 30; // Limite fixo de hops para o CSV
 
 // --------------------------------------------------------------------------
@@ -26,7 +26,6 @@ function getFileName() {
     return `py_monitor_${date}.csv`;
 }
 
-// Converte strings do CSV em tipos corretos (Sanitiza chaves e valores)
 function typeConverter(row) {
     if (!row.Timestamp) return null; 
 
@@ -70,7 +69,6 @@ function toggleDarkMode() {
 }
 
 function applySavedTheme() {
-    // Esta função NÃO PODE chamar drawCharts diretamente, pois o DOM pode não estar pronto.
     const savedTheme = localStorage.getItem('darkMode');
     const checkbox = document.getElementById('checkbox');
     
@@ -80,7 +78,6 @@ function applySavedTheme() {
     }
     
     checkbox.addEventListener('change', toggleDarkMode);
-    // Retorna o estado do tema
     return savedTheme === 'true'; 
 }
 
@@ -95,13 +92,11 @@ function startAutoUpdate() {
     }, AUTO_UPDATE_INTERVAL);
 }
 
-
 // --------------------------------------------------------------------------
-// Lógica de Carregamento e PapaParse (CORREÇÃO DE INICIALIZAÇÃO)
+// Lógica de Carregamento e PapaParse (CORREÇÃO DE INSTABILIDADE)
 // --------------------------------------------------------------------------
 
 function initMonitor() {
-    // 1. OBTEM O TEMA ANTES DE TENTAR CARREGAR
     const isDark = applySavedTheme(); 
     
     const statusElement = document.getElementById('statusMessage');
@@ -120,7 +115,7 @@ function initMonitor() {
         download: true, 
         header: true,   
         skipEmptyLines: true,
-        worker: false, 
+        worker: false, // Desabilita worker para evitar falhas em caminhos relativos
         downloadRequestHeaders: {
             'Cache-Control': 'no-cache', 
             'Pragma': 'no-cache',
@@ -133,8 +128,7 @@ function initMonitor() {
 
             if (allData.length === 0) {
                 statusElement.textContent = `Erro: Nenhuma linha de dados válida em ${fileName} ou arquivo vazio.`;
-                // Chama a destruição apenas em caso de falha para limpar a tela
-                destroyAllCharts(); 
+                destroyAllCharts();
                 return;
             }
             
@@ -201,19 +195,18 @@ function filterChart() {
 }
 
 function destroyAllCharts() {
+    // Destrói as instâncias Chart.js existentes
     if (chartInstanceMeet) chartInstanceMeet.destroy();
     if (chartInstanceMaquina) chartInstanceMaquina.destroy();
     if (chartInstanceTracert) chartInstanceTracert.destroy();
     
-    // CORREÇÃO: A falha era porque o canvas precisava ser recriado DENTRO do container.
-    // O JS agora garante que o canvas (com ID) exista para ser usado pelo Chart.js.
-    document.getElementById('chart-saude-meet').innerHTML = '<canvas id="meetChartCanvas"></canvas>';
-    document.getElementById('chart-saude-maquina').innerHTML = '<canvas id="maquinaChartCanvas"></canvas>';
-    document.getElementById('chart-tracert').innerHTML = '<canvas id="tracertChartCanvas"></canvas>';
+    // Recria os elementos div internos, garantindo que o canvas seja recriado com o ID correto
+    document.getElementById('chart-saude-meet').innerHTML = '<h3><i class="fas fa-wifi"></i> Saúde Geral, Latência Média e Jitter (Meet)</h3><canvas id="meetChartCanvas"></canvas>';
+    document.getElementById('chart-saude-maquina').innerHTML = '<h3><i class="fas fa-desktop"></i> Carga da Máquina (CPU, RAM, Disco)</h3><canvas id="maquinaChartCanvas"></canvas>';
+    document.getElementById('chart-tracert').innerHTML = '<h3><i class="fas fa-route"></i> Detalhe da Rota (Latência por Hop - Último Registro Filtrado)</h3><canvas id="tracertChartCanvas"></canvas>';
 }
 
 function updateChartTheme(isDark) {
-    // Força a redestruição e redesenho dos gráficos para aplicar o tema com as novas cores
     drawAllCharts(currentDataToDisplay);
 }
 
@@ -244,8 +237,8 @@ function drawMeetCharts(dataToDisplay, isDark) {
     const color = isDark ? '#f0f0f0' : '#333';
     const gridColor = isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)';
     
-    let maxLatJitter = Math.max(d3.max(dataJitter) || 0, d3.max(dataLatency) || 0) * 1.2;
-    const latencyMaxScale = Math.ceil((maxLatJitter + 10) / 50) * 50; 
+    let maxLatJitter = d3.max(dataJitter.concat(dataLatency)) || 10;
+    const latencyMaxScale = Math.max(50, Math.ceil(maxLatJitter / 25) * 25); 
 
     const ctxMeet = document.getElementById('meetChartCanvas').getContext('2d');
     chartInstanceMeet = new Chart(ctxMeet, {
@@ -283,7 +276,8 @@ function drawMeetCharts(dataToDisplay, isDark) {
                     grid: { color: gridColor }, ticks: { color: color, stepSize: 25 }
                 },
                 'y-latency': { 
-                    type: 'linear', position: 'right', min: 0, max: latencyMaxScale, 
+                    type: 'linear', position: 'right', min: 0, 
+                    max: latencyMaxScale, 
                     title: { display: true, text: 'Latência / Jitter (ms)', color: color },
                     grid: { drawOnChartArea: false, color: gridColor },
                     ticks: { color: color }
@@ -302,6 +296,11 @@ function drawMaquinaChart(dataToDisplay, isDark) {
     
     const color = isDark ? '#f0f0f0' : '#333';
     const gridColor = isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)';
+    
+    // NOVO: Cálculo da Escala Dinâmica (maxUsage)
+    const allUsage = dataCPU.concat(dataRAM).concat(dataDisco).filter(v => v > 0);
+    const maxUsage = d3.max(allUsage) || 10; 
+    const usageMaxScale = Math.max(50, Math.ceil(maxUsage / 10) * 10); 
     
     const ctxMaquina = document.getElementById('maquinaChartCanvas').getContext('2d');
     chartInstanceMaquina = new Chart(ctxMaquina, {
@@ -331,7 +330,9 @@ function drawMaquinaChart(dataToDisplay, isDark) {
             responsive: true, maintainAspectRatio: false, color: color, 
             scales: {
                 x: { title: { display: true, text: 'Horário (HH:MM)', color: color }, grid: { color: gridColor }, ticks: { color: color } },
-                y: { min: 0, max: 100, title: { display: true, text: 'Uso (%)', color: color }, grid: { color: gridColor }, ticks: { color: color } }
+                y: { min: 0, 
+                     max: usageMaxScale, 
+                     title: { display: true, text: 'Uso (%)', color: color }, grid: { color: gridColor }, ticks: { color: color } }
             },
             plugins: { title: { display: true, text: `Carga da Máquina (CPU, RAM, Disco)`, color: color }, legend: { labels: { color: color } } }
         }
@@ -368,6 +369,10 @@ function drawTracertChart(lastRecord, isDark) {
     const dataLatencies = tracertData.map(d => d.latency);
     const dataIps = tracertData.map(d => d.ip);
     
+    // NOVO: Cálculo da Escala Dinâmica
+    const maxLatTracert = d3.max(dataLatencies) || 50;
+    const tracertMaxScale = Math.max(50, Math.ceil(maxLatTracert / 50) * 50);
+
     const ctxTracert = document.getElementById('tracertChartCanvas').getContext('2d');
     chartInstanceTracert = new Chart(ctxTracert, {
         type: 'bar',
@@ -391,6 +396,8 @@ function drawTracertChart(lastRecord, isDark) {
                 y: { 
                     title: { display: true, text: 'Latência (ms)', color: isDark ? '#f0f0f0' : '#333' }, 
                     grid: { color: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)' }, 
+                    max: tracertMaxScale, // Máximo dinâmico
+                    min: 0,
                     ticks: { color: isDark ? '#f0f0f0' : '#333' } 
                 }
             },
@@ -474,7 +481,6 @@ function displayEventDetails(dataRow) {
 
 
 document.addEventListener('DOMContentLoaded', () => {
-    // Garante que o DOM está pronto para evitar o erro Cannot set properties of null
     
     if (typeof Papa === 'undefined') {
         document.getElementById('statusMessage').textContent = 'ERRO: PapaParse (CSV Reader) não está carregado. Verifique seu index.html.';
@@ -485,7 +491,7 @@ document.addEventListener('DOMContentLoaded', () => {
          document.getElementById('statusMessage').textContent = 'AVISO: Chart.js não carregado. Gráficos desabilitados.';
     }
     
-    // 1. Aplica o tema e adiciona listeners de tema
+    // 1. Aplica o tema (isso resolve o erro de inicialização ao ser chamado antes de initMonitor)
     applySavedTheme(); 
     
     // 2. Define a data e adiciona listeners de filtros
