@@ -206,18 +206,21 @@ function initMonitor() {
 }
 
 function populateHostnames(data) {
+    // 1. Coleta Hostnames válidos
     const hostnames = [...new Set(data.map(d => d.Hostname).filter(Boolean))].sort();
     const datalist = document.getElementById('hostnames');
     const input = document.getElementById('hostnameInput');
-    const selectedValue = input.value || 'all'; 
+    const previousValue = input.value; // Pega o valor atual (ex: 'all')
 
     datalist.innerHTML = '';
 
+    // 2. Cria a Opção 'all'
     const allOption = document.createElement('option');
     allOption.value = 'all';
-    allOption.label = 'Todas as Máquinas'; 
+    allOption.label = 'Todas as Máquinas';
     datalist.appendChild(allOption);
 
+    // 3. Cria as Opções de Hostnames
     hostnames.forEach(host => {
         const option = document.createElement('option');
         option.value = host;
@@ -225,7 +228,22 @@ function populateHostnames(data) {
         datalist.appendChild(option);
     });
 
-    input.value = hostnames.includes(selectedValue) ? selectedValue : 'all';
+    // 4. Define o Valor do Input
+    // Se o valor anterior for um hostname válido, mantém. Senão, mantém 'all'.
+    if (hostnames.includes(previousValue) || previousValue === 'all') {
+        input.value = previousValue;
+    } else if (hostnames.length > 0) {
+        // Se o valor anterior era inválido, mas temos máquinas, mantém 'all' para filtrar tudo.
+        input.value = 'all';
+    } else {
+        // Nenhuma máquina, força 'all'
+        input.value = 'all';
+    }
+    
+    // ATENÇÃO CRÍTICA: Forçar o foco e desfoque no input pode fazer o navegador 
+    // recarregar a lista de sugestões do datalist.
+    input.blur();
+    input.focus();
 }
 
 function showStatus(type, message) {
