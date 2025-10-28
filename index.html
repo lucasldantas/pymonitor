@@ -9,84 +9,143 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <script src="https://d3js.org/d3.v7.min.js"></script>
 
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;700&display=swap" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" rel="stylesheet">
+
     <style>
-        /* Estilos gerais */
-        body { font-family: 'Arial', sans-serif; margin: 0; background-color: #f4f4f4; color: #333; transition: background-color 0.3s, color 0.3s; }
-        header { background-color: #333; color: white; padding: 15px; text-align: center; }
-        .container { max-width: 1200px; margin: 20px auto; padding: 0 20px; }
-        .controls, .chart-container, #event-details { background-color: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px; }
-        .chart-container h3 { margin-top: 0; color: #555; border-bottom: 1px solid #eee; padding-bottom: 10px; }
-        .filter-group label { margin-right: 10px; font-weight: bold; }
-        .filter-group input, .filter-group select, .filter-group button { padding: 8px; margin-right: 10px; border: 1px solid #ccc; border-radius: 4px; }
-        #statusMessage { margin-top: 10px; font-weight: bold; color: #ff5722; }
+        /* Variáveis de Cores */
+        :root {
+            --bg-light: #f7f7f7;
+            --bg-card: #ffffff;
+            --text-dark: #2c3e50;
+            --primary: #3498db;
+            --shadow: 0 4px 8px rgba(0, 0, 0, 0.05);
+            --border: #e0e0e0;
+        }
+
+        body.dark-mode {
+            --bg-light: #1e2124;
+            --bg-card: #282b30;
+            --text-dark: #ffffff;
+            --primary: #7289da;
+            --shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+            --border: #444;
+        }
+
+        /* Estilos Gerais e Reset */
+        body { font-family: 'Roboto', sans-serif; margin: 0; background-color: var(--bg-light); color: var(--text-dark); transition: background-color 0.3s, color 0.3s; }
+        header { background-color: var(--primary); color: white; padding: 25px; text-align: center; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2); }
+        h1, h3 { margin: 0; }
+        .container { max-width: 1300px; margin: 20px auto; padding: 0 20px; }
         
-        /* Tema Escuro (DarkMode) */
-        body.dark-mode { background-color: #1a1a1a; color: #e0e0e0; }
-        body.dark-mode header { background-color: #2c2c2c; }
-        body.dark-mode .controls, body.dark-mode .chart-container, body.dark-mode #event-details { background-color: #2c2c2c; box-shadow: 0 2px 4px rgba(0,0,0,0.5); }
-        body.dark-mode .chart-container h3 { color: #bdbdbd; border-bottom-color: #555; }
-        body.dark-mode .filter-group input, body.dark-mode .filter-group select { background-color: #444; border-color: #555; color: #e0e0e0; }
-        body.dark-mode #statusMessage { color: #ffab40; }
-        
+        /* Controles e Cards */
+        .controls, .chart-container, #event-details { 
+            background-color: var(--bg-card); 
+            padding: 25px; 
+            border-radius: 12px; 
+            box-shadow: var(--shadow); 
+            margin-bottom: 25px; 
+        }
+        .chart-container h3 { 
+            margin-top: 0; 
+            color: var(--primary); 
+            border-bottom: 2px solid var(--border); 
+            padding-bottom: 10px; 
+            margin-bottom: 20px;
+        }
+
+        /* Filtros */
+        .filter-group { display: flex; align-items: center; flex-wrap: wrap; margin-bottom: 15px; }
+        .filter-group label { margin-right: 15px; font-weight: 500; min-width: 150px; }
+        .filter-group input, .filter-group select { 
+            padding: 10px; 
+            border: 1px solid var(--border); 
+            border-radius: 8px; 
+            margin-right: 10px; 
+            background-color: transparent; 
+            color: var(--text-dark);
+            transition: border-color 0.3s;
+        }
+        .filter-group input:focus, .filter-group select:focus { border-color: var(--primary); outline: none; }
+        .controls button { 
+            padding: 10px 20px; 
+            background-color: var(--primary); 
+            color: white; 
+            border: none; 
+            border-radius: 8px; 
+            cursor: pointer; 
+            font-weight: bold; 
+            transition: background-color 0.3s;
+        }
+        .controls button:hover { background-color: #2980b9; }
+
+        /* Status e Tema */
+        #statusMessage { margin-top: 10px; font-weight: 700; color: #e74c3c; }
+        .dark-mode #statusMessage { color: #f39c12; }
+        .theme-toggle-container { margin-left: auto; display: flex; align-items: center; }
+
         /* Detalhes do Evento */
-        #event-details { display: none; border-left: 5px solid #009688; }
-        #event-details h4 { color: #009688; }
+        #event-details { display: none; border-left: 5px solid #27ae60; }
+        #event-details h4 { color: #27ae60; }
+        #event-content p { margin: 5px 0; font-size: 0.95em; }
     </style>
 </head>
 <body>
 
     <header>
-        <h1>Monitoramento de Qualidade de Serviço (QoS)</h1>
-        <p>Análise de Carga da Máquina e Saúde da Rede para Google Meet</p>
+        <h1><i class="fas fa-chart-line"></i> Monitoramento de QoS</h1>
+        <p>Análise de Carga da Máquina e Saúde da Rede</p>
     </header>
 
     <div class="container">
         
         <div class="controls">
-            <div style="float: right;">
-                <label for="checkbox" style="font-weight: normal; margin-right: 0;">Tema Escuro</label>
-                <input type="checkbox" id="checkbox" style="margin-right: 0;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                <h2>Filtros e Dados</h2>
+                <div class="theme-toggle-container">
+                    <label for="checkbox" style="font-weight: normal; margin-right: 10px;">Tema Escuro</label>
+                    <input type="checkbox" id="checkbox">
+                </div>
             </div>
             
-            <h2>Filtros e Dados</h2>
-            <div id="statusMessage">Carregando dados...</div>
+            <div id="statusMessage">Aguardando inicialização...</div>
             
-            <div class="filter-group" style="margin-top: 15px;">
+            <div class="filter-group">
                 <label for="dateSelect">1. Data do Arquivo (.csv):</label>
-                <input type="text" id="dateSelect" placeholder="DD-MM-YY" value="27-10-25" style="width: 80px;">
-                <button onclick="initMonitor()">Buscar Data</button>
+                <input type="text" id="dateSelect" placeholder="DD-MM-YY" value="27-10-25" style="width: 80px; text-align: center;">
+                <button onclick="initMonitor()"><i class="fas fa-search"></i> Buscar Data</button>
             </div>
             
-            <div class="filter-group" style="margin-top: 15px;">
-                <label for="hostnameFilter">2. Filtrar por Máquina (Hostname):</label>
-                <select id="hostnameFilter">
+            <div class="filter-group">
+                <label for="hostnameFilter">2. Máquina (Hostname):</label>
+                <select id="hostnameFilter" style="min-width: 150px;">
                     <option value="all">Todas as Máquinas</option>
                 </select>
 
                 <label for="startTime">3. Intervalo de Horário:</label>
-                <input type="time" id="startTime" value="00:00">
+                <input type="time" id="startTime" value="00:00" style="width: 80px;">
                 <label for="endTime">até</label>
-                <input type="time" id="endTime" value="23:59">
+                <input type="time" id="endTime" value="23:59" style="width: 80px;">
                 
-                <button id="applyFiltersButton">Aplicar Filtros</button>
+                <button id="applyFiltersButton"><i class="fas fa-filter"></i> Aplicar Filtros</button>
             </div>
         </div>
         
         <div id="event-details">
             <h2 style="margin-top: 0;">Detalhes do Evento Selecionado</h2>
-            <div id="event-content">Clique em um ponto no gráfico de "Saúde Geral" para ver os detalhes do Tracert.</div>
+            <div id="event-content"></div>
         </div>
 
         <div class="chart-container" id="chart-saude-meet">
-            <h3>Gráfico 1 & 3: Saúde Geral, Latência Média e Jitter (Meet)</h3>
+            <h3><i class="fas fa-wifi"></i> Saúde Geral, Latência Média e Jitter (Meet)</h3>
             </div>
 
         <div class="chart-container" id="chart-saude-maquina">
-            <h3>Gráfico 2: Carga da Máquina (CPU, RAM, Disco)</h3>
+            <h3><i class="fas fa-desktop"></i> Carga da Máquina (CPU, RAM, Disco)</h3>
             </div>
 
         <div class="chart-container" id="chart-tracert">
-            <h3>Gráfico 4: Detalhe da Rota (Latência por Hop - Último Registro Filtrado)</h3>
+            <h3><i class="fas fa-route"></i> Detalhe da Rota (Latência por Hop - Último Registro Filtrado)</h3>
             </div>
 
     </div>
