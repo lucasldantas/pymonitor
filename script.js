@@ -32,14 +32,12 @@ function typeConverter(row) {
 
     const newRow = {};
     for (const key in row) {
-        // Sanitiza a chave: remove espaços e caracteres especiais (e.g., 'Uso_CPU')
         const cleanKey = key.replace(/[\(\)%]/g, '').replace(/ /g, '_').replace('.', ''); 
         newRow[cleanKey] = row[key];
     }
     
     newRow.Timestamp = new Date(newRow.Timestamp);
     
-    // Conversões para float/int
     newRow.Uso_CPU = parseFloat(newRow.Uso_CPU) || 0;
     newRow.Uso_RAM = parseFloat(newRow.Uso_RAM) || 0;
     newRow.Uso_Disco = parseFloat(newRow.Uso_Disco) || 0;
@@ -59,6 +57,7 @@ function typeConverter(row) {
     
     return newRow;
 }
+
 
 // --------------------------------------------------------------------------
 // Lógica de Tema e Inicialização
@@ -130,7 +129,7 @@ function initMonitor() {
 
             if (allData.length === 0) {
                 statusElement.textContent = `Erro: Nenhuma linha de dados válida em ${fileName} ou arquivo vazio.`;
-                destroyAllCharts();
+                drawAllCharts([]); // Limpa a tela com dados vazios
                 return;
             }
             
@@ -142,7 +141,7 @@ function initMonitor() {
         error: function(error) {
             console.error("Erro ao carregar o CSV:", error);
             statusElement.textContent = `ERRO: Não foi possível carregar o arquivo ${fileName}. Verifique o nome/data.`;
-            destroyAllCharts();
+            drawAllCharts([]);
         }
     });
 }
@@ -196,43 +195,50 @@ function filterChart() {
     drawAllCharts(filteredData);
 }
 
-// --- FUNÇÃO DE DESTRUIÇÃO (Solução Definitiva) ---
+// --- SOLUÇÃO ANTI-VAZAMENTO DE MEMÓRIA (Destruição Completa) ---
 function destroyAllCharts() {
-    // 1. Destrói as instâncias Chart.js existentes
+    // 1. Destruição explícita e zera as referências (CRÍTICO!)
     if (chartInstanceMeet) chartInstanceMeet.destroy();
     if (chartInstanceMaquina) chartInstanceMaquina.destroy();
     if (chartInstanceVelocidade) chartInstanceVelocidade.destroy(); 
     if (chartInstanceTracert) chartInstanceTracert.destroy();
     
-    // 2. Zera as variáveis de instância
     chartInstanceMeet = null;
     chartInstanceMaquina = null;
     chartInstanceVelocidade = null;
     chartInstanceTracert = null;
+    
+    // 2. Remove o elemento CANVAS antigo e o recria.
+    // Esta é a única maneira de garantir que o contexto de desenho seja 100% limpo.
+    const containerIds = ['chart-saude-meet', 'chart-saude-maquina', 'chart-velocidade', 'chart-tracert'];
 
-    // 3. Define os títulos e recria os elementos canvas, de forma segura
-    const containers = [
-        { id: 'chart-saude-meet', title: '<h3><i class="fas fa-wifi"></i> 3. Teste de Qualidade do Meet (Saúde, Latência Média, Jitter)</h3>', canvasId: 'meetChartCanvas' },
-        { id: 'chart-saude-maquina', title: '<h3><i class="fas fa-desktop"></i> 1. Carga Detalhada do Computador (CPU, RAM, Disco e Carga Média)</h3>', canvasId: 'maquinaChartCanvas' },
-        { id: 'chart-velocidade', title: '<h3><i class="fas fa-tachometer-alt"></i> 2. Teste de Velocidade da Internet (Download, Upload, Latência)</h3>', canvasId: 'velocidadeChartCanvas' },
-        { id: 'chart-tracert', title: '<h3><i class="fas fa-route"></i> 4. Tracert do Meet (Rota por Salto)</h3>', canvasId: 'tracertChartCanvas' }
-    ];
-
-    containers.forEach(item => {
-        const container = document.getElementById(item.id);
-        if (container) {
-            // Remove o canvas antigo
-            document.querySelector(`#${item.id} canvas`)?.remove();
-            
-            // Recria o container com o título e anexa um NOVO canvas (limpo)
-            const newCanvas = document.createElement('canvas');
-            newCanvas.id = item.canvasId;
-            
-            // Re-anexa o título (caso ele tenha sido movido) e o novo canvas
-            container.innerHTML = item.title;
-            container.appendChild(newCanvas);
+    containerIds.forEach(containerId => {
+        const container = document.getElementById(containerId);
+        const oldCanvas = container ? container.querySelector('canvas') : null;
+        if (oldCanvas) {
+            oldCanvas.remove();
         }
     });
+}
+
+// Função auxiliar para obter o contexto do canvas (Garante que um canvas limpo exista)
+function getChartContext(containerId, canvasId) {
+    const container = document.getElementById(containerId);
+    if (!container) return null;
+    
+    // 1. Cria um novo canvas com o ID necessário
+    const newCanvas = document.createElement('canvas');
+    newCanvas.id = canvasId;
+
+    // 2. Anexa o novo canvas após o título (se houver)
+    const titleElement = container.querySelector('h3');
+    if (titleElement) {
+        container.insertBefore(newCanvas, titleElement.nextSibling);
+    } else {
+        container.appendChild(newCanvas);
+    }
+
+    return newCanvas.getContext('2d');
 }
 
 
@@ -241,7 +247,7 @@ function updateChartTheme(isDark) {
 }
 
 function drawAllCharts(dataToDisplay) {
-    // A limpeza é a PRIMEIRA coisa
+    // 1. Destrói TUDO antes de prosseguir
     destroyAllCharts(); 
     
     if (dataToDisplay.length === 0) {
@@ -251,19 +257,11 @@ function drawAllCharts(dataToDisplay) {
 
     const isDark = document.body.classList.contains('dark-mode');
     
-    // OBTEM O CONTEXTO PARA DESENHO
-    
     // ORDEM SOLICITADA:
     drawMaquinaChart(dataToDisplay, isDark);
     drawVelocidadeChart(dataToDisplay, isDark);
     drawMeetCharts(dataToDisplay, isDark);
     drawTracertChart(dataToDisplay[dataToDisplay.length - 1], isDark);
-}
-
-// Função auxiliar para obter o contexto do canvas recém-criado
-function getChartContext(canvasId) {
-    const canvas = document.getElementById(canvasId);
-    return canvas ? canvas.getContext('2d') : null;
 }
 
 // -----------------------------------
@@ -284,7 +282,7 @@ function drawMaquinaChart(dataToDisplay, isDark) {
     const maxUsage = d3.max(allUsage) || 10; 
     const usageMaxScale = Math.max(50, Math.ceil(maxUsage / 10) * 10); 
     
-    const ctxMaquina = getChartContext('maquinaChartCanvas');
+    const ctxMaquina = getChartContext('chart-saude-maquina', 'maquinaChartCanvas');
     if (!ctxMaquina) return;
     
     chartInstanceMaquina = new Chart(ctxMaquina, {
@@ -334,7 +332,7 @@ function drawVelocidadeChart(dataToDisplay, isDark) {
     let maxLatency = d3.max(dataLatency) || 50;
     const latencyMaxScale = Math.max(50, Math.ceil(maxLatency / 50) * 50);
 
-    const ctxVelocidade = getChartContext('velocidadeChartCanvas');
+    const ctxVelocidade = getChartContext('chart-velocidade', 'velocidadeChartCanvas');
     if (!ctxVelocidade) return;
     
     chartInstanceVelocidade = new Chart(ctxVelocidade, {
@@ -386,7 +384,7 @@ function drawMeetCharts(dataToDisplay, isDark) {
     let maxLatJitter = d3.max(dataJitter.concat(dataLatency)) || 10;
     const latencyMaxScale = Math.max(50, Math.ceil(maxLatJitter / 25) * 25); 
 
-    const ctxMeet = getChartContext('meetChartCanvas');
+    const ctxMeet = getChartContext('chart-saude-meet', 'meetChartCanvas');
     if (!ctxMeet) return;
     
     chartInstanceMeet = new Chart(ctxMeet, {
@@ -463,7 +461,7 @@ function drawTracertChart(lastRecord, isDark) {
     const maxLatTracert = d3.max(dataLatencies) || 50;
     const tracertMaxScale = Math.max(50, Math.ceil(maxLatTracert / 50) * 50);
 
-    const ctxTracert = getChartContext('tracertChartCanvas');
+    const ctxTracert = getChartContext('chart-tracert', 'tracertChartCanvas');
     if (!ctxTracert) return;
 
     chartInstanceTracert = new Chart(ctxTracert, {
@@ -531,7 +529,7 @@ function displayEventDetails(dataRow) {
         { label: "IP Público", key: "IP_Publico" },
         { label: "Provedor", key: "Provedor" },
         { label: "Download (Mbps)", key: "DownloadMbps", format: d => `${d.toFixed(2)}` },
-        { label: "Carga do PC (%)", key: "Carga_Computador" },
+        { label: "Carga do PC (%)", key: "Carga_Computador", format: d => `${d}%` },
         { label: "Saúde Meet (0-100)", key: "Saude_Meet0100" },
         { label: "Jitter (ms)", key: "Jitter_Meetms", format: d => `${d.toFixed(2)}` },
         { label: "Perda (%)", key: "Perda_Meet", format: d => `${d.toFixed(1)}` },
