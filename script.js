@@ -7,7 +7,7 @@ let currentDataToDisplay = [];
 const AUTO_UPDATE_INTERVAL = 10 * 60 * 1000; // 10 minutos em milissegundos
 let autoUpdateTimer = null; 
 const BASE_CSV_URL = './'; // Caminho relativo para o GitHub Pages
-const MAX_TTL = 30; // Deve ser igual ao MAX_TTL do Python
+const MAX_TTL = 30; // Limite fixo de hops para o CSV
 
 // --------------------------------------------------------------------------
 // Funções Auxiliares
@@ -30,18 +30,14 @@ function getFileName() {
 function typeConverter(row) {
     if (!row.Timestamp) return null; 
 
-    // 1. Sanitização de Chaves
     const newRow = {};
     for (const key in row) {
-        // Remove caracteres que o PapaParse não lida bem (espaços, parênteses)
         const cleanKey = key.replace(/[\(\)%]/g, '').replace(/ /g, '_').replace('.', ''); 
         newRow[cleanKey] = row[key];
     }
     
-    // 2. Conversão de Tipos
     newRow.Timestamp = new Date(newRow.Timestamp);
     
-    // Conversões para float/int (usando || 0 para tratar N/A ou strings vazias)
     newRow.Uso_CPU = parseFloat(newRow.Uso_CPU) || 0;
     newRow.Uso_RAM = parseFloat(newRow.Uso_RAM) || 0;
     newRow.Uso_Disco = parseFloat(newRow.Uso_Disco) || 0;
@@ -50,15 +46,12 @@ function typeConverter(row) {
     newRow.UploadMbps = parseFloat(newRow.UploadMbps) || 0;
     newRow.Latencia_Speedtestms = parseFloat(newRow.Latencia_Speedtestms) || 0;
     newRow.Saude_Meet0100 = parseInt(newRow.Saude_Meet0100) || 0;
-    // Usando a chave correta para Latência Média do Meet
     newRow.Latencia_Meet_Mediaps = parseFloat(newRow.Latencia_Meet_Media_ms) || 0; 
     newRow.Jitter_Meetms = parseFloat(newRow.Jitter_Meetms) || 0;
     newRow.Perda_Meet = parseFloat(newRow.Perda_Meet) || 0;
 
-    // 3. Conversão de Dados de Tracert
     for (let i = 1; i <= MAX_TTL; i++) {
         const latKey = `Hop_LAT_${String(i).padStart(2, '0')}ms`;
-        // Converte Latência para número. "" se torna 0.
         newRow[latKey] = parseFloat(newRow[latKey]) || 0;
     }
     
@@ -77,6 +70,7 @@ function toggleDarkMode() {
 }
 
 function applySavedTheme() {
+    // Esta função NÃO PODE chamar drawCharts diretamente, pois o DOM pode não estar pronto.
     const savedTheme = localStorage.getItem('darkMode');
     const checkbox = document.getElementById('checkbox');
     
@@ -86,6 +80,8 @@ function applySavedTheme() {
     }
     
     checkbox.addEventListener('change', toggleDarkMode);
+    // Retorna o estado do tema
+    return savedTheme === 'true'; 
 }
 
 function startAutoUpdate() {
@@ -99,11 +95,15 @@ function startAutoUpdate() {
     }, AUTO_UPDATE_INTERVAL);
 }
 
+
 // --------------------------------------------------------------------------
-// Lógica de Carregamento e PapaParse (CORREÇÃO DE INSTABILIDADE)
+// Lógica de Carregamento e PapaParse (CORREÇÃO DE INICIALIZAÇÃO)
 // --------------------------------------------------------------------------
 
 function initMonitor() {
+    // 1. OBTEM O TEMA ANTES DE TENTAR CARREGAR
+    const isDark = applySavedTheme(); 
+    
     const statusElement = document.getElementById('statusMessage');
     const fileName = getFileName();
     const fullURL = BASE_CSV_URL + fileName;
@@ -120,9 +120,8 @@ function initMonitor() {
         download: true, 
         header: true,   
         skipEmptyLines: true,
-        worker: false, // Desabilita worker para evitar falhas em caminhos relativos
+        worker: false, 
         downloadRequestHeaders: {
-            // Força a requisição a não usar cache (resolve o problema de travamento)
             'Cache-Control': 'no-cache', 
             'Pragma': 'no-cache',
             'If-Modified-Since': 'Sat, 01 Jan 2000 00:00:00 GMT'
@@ -134,7 +133,8 @@ function initMonitor() {
 
             if (allData.length === 0) {
                 statusElement.textContent = `Erro: Nenhuma linha de dados válida em ${fileName} ou arquivo vazio.`;
-                destroyAllCharts();
+                // Chama a destruição apenas em caso de falha para limpar a tela
+                destroyAllCharts(); 
                 return;
             }
             
@@ -204,13 +204,16 @@ function destroyAllCharts() {
     if (chartInstanceMeet) chartInstanceMeet.destroy();
     if (chartInstanceMaquina) chartInstanceMaquina.destroy();
     if (chartInstanceTracert) chartInstanceTracert.destroy();
-    // Recria os elementos canvas, corrigindo o erro 'Cannot set properties of null'
+    
+    // CORREÇÃO: A falha era porque o canvas precisava ser recriado DENTRO do container.
+    // O JS agora garante que o canvas (com ID) exista para ser usado pelo Chart.js.
     document.getElementById('chart-saude-meet').innerHTML = '<canvas id="meetChartCanvas"></canvas>';
     document.getElementById('chart-saude-maquina').innerHTML = '<canvas id="maquinaChartCanvas"></canvas>';
     document.getElementById('chart-tracert').innerHTML = '<canvas id="tracertChartCanvas"></canvas>';
 }
 
 function updateChartTheme(isDark) {
+    // Força a redestruição e redesenho dos gráficos para aplicar o tema com as novas cores
     drawAllCharts(currentDataToDisplay);
 }
 
@@ -398,3 +401,101 @@ function drawTracertChart(lastRecord, isDark) {
         }
     });
 }
+
+function handleChartClick(event) {
+    if (typeof Chart === 'undefined') return; 
+    
+    const points = chartInstanceMeet.getElementsAtEventForMode(event, 'index', { intersect: true }, false);
+
+    if (points.length === 0) {
+        document.getElementById('event-details').style.display = 'none';
+        return;
+    }
+
+    const dataIndex = points[0].index;
+    const clickedRow = currentDataToDisplay[dataIndex];
+
+    if (clickedRow) {
+        displayEventDetails(clickedRow);
+    }
+}
+
+
+function displayEventDetails(dataRow) {
+    const detailsContainer = document.getElementById('event-details');
+    const content = document.getElementById('event-content');
+
+    const primaryFields = [
+        { label: "Timestamp", key: "Timestamp", format: d => d.toLocaleString('pt-BR') },
+        { label: "Hostname", key: "Hostname" },
+        { label: "Usuário Logado", key: "Usuario" },
+        { label: "Localização", key: "Cidade" },
+        { label: "IP Público", key: "IP_Publico" },
+        { label: "Provedor", key: "Provedor" },
+        { label: "Download (Mbps)", key: "DownloadMbps", format: d => `${d.toFixed(2)}` },
+        { label: "Carga do PC (%)", key: "Carga_Computador" },
+        { label: "Saúde Meet (0-100)", key: "Saude_Meet0100" },
+        { label: "Jitter (ms)", key: "Jitter_Meetms", format: d => `${d.toFixed(2)}` },
+        { label: "Perda (%)", key: "Perda_Meet", format: d => `${d.toFixed(1)}` },
+    ];
+
+    let html = '';
+    
+    primaryFields.forEach(field => {
+        const value = dataRow[field.key];
+        const displayValue = field.format ? field.format(value) : value || 'N/A';
+        html += `<p><strong>${field.label}:</strong> ${displayValue}</p>`;
+    });
+
+    html += `<h4 style="margin-top: 15px; border-bottom: 1px solid #ccc; padding-bottom: 5px;">Detalhes do Rastreamento de Rota</h4>`;
+
+    let foundHops = false;
+    for (let i = 1; i <= 30; i++) {
+        const ipKey = `Hop_IP_${String(i).padStart(2, '0')}`;
+        const latencyKey = `Hop_LAT_${String(i).padStart(2, '0')}ms`;
+
+        const ip = dataRow[ipKey];
+        const latency = dataRow[latencyKey];
+        
+        if (ip && ip.trim() !== '') {
+            const latencyValue = latency > 0 ? `${latency.toFixed(2)} ms` : 'Perda/Timeout';
+            html += `<p style="margin-top: 5px; margin-bottom: 5px;"><strong>Hop ${i}:</strong> ${ip} (${latencyValue})</p>`;
+            foundHops = true;
+        }
+    }
+    
+    if (!foundHops) {
+        html += `<p style="color: #999;">Nenhum dado de rastreamento de rota encontrado neste registro (requer execução com 'sudo').</p>`;
+    }
+
+    content.innerHTML = html;
+    detailsContainer.style.display = 'block';
+}
+
+
+document.addEventListener('DOMContentLoaded', () => {
+    // Garante que o DOM está pronto para evitar o erro Cannot set properties of null
+    
+    if (typeof Papa === 'undefined') {
+        document.getElementById('statusMessage').textContent = 'ERRO: PapaParse (CSV Reader) não está carregado. Verifique seu index.html.';
+        return;
+    }
+    
+    if (typeof Chart === 'undefined') {
+         document.getElementById('statusMessage').textContent = 'AVISO: Chart.js não carregado. Gráficos desabilitados.';
+    }
+    
+    // 1. Aplica o tema e adiciona listeners de tema
+    applySavedTheme(); 
+    
+    // 2. Define a data e adiciona listeners de filtros
+    document.getElementById('dateSelect').value = getCurrentDateFormatted();
+    
+    document.getElementById('dateSelect').addEventListener('change', initMonitor);
+    document.getElementById('applyFiltersButton').addEventListener('click', filterChart);
+    document.getElementById('hostnameFilter').addEventListener('change', filterChart); 
+    
+    // 3. Inicia o monitor (que carrega o CSV)
+    initMonitor(); 
+    startAutoUpdate();
+});
