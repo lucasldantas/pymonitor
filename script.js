@@ -13,7 +13,7 @@ let chartInstanceMaquina = null;
 let chartInstanceVelocidade = null;
 let chartInstanceTracert = null;
 
-// Armazena temporariamente os hostnames para a seleção múltipla
+// Armazena a lista de hostnames para a seleção múltipla
 let availableHostnames = [];
 
 // ========= Utils =========
@@ -22,17 +22,12 @@ function getCurrentDateFormatted() {
     const dd = String(today.getDate()).padStart(2, '0');
     const mm = String(today.getMonth() + 1).padStart(2, '0');
     const yy = String(today.getFullYear()).slice(-2);
-    // Retorna no formato YYYY-MM-DD para o input[type="date"] funcionar corretamente
-    return `${today.getFullYear()}-${mm}-${dd}`; 
+    return `${dd}-${mm}-${yy}`;
 }
 
 function getFileName() {
-    // Agora o input é do tipo date, o valor é YYYY-MM-DD
-    const dateInput = document.getElementById('dateSelect').value;
-    const [Y, M, D] = dateInput.split('-');
-    // Retorna no formato DD-MM-YY conforme o nome do arquivo py_monitor_DD-MM-YY.csv
-    const formattedDate = `${D}-${M}-${Y.slice(-2)}`; 
-    return `py_monitor_${formattedDate}.csv`;
+    const date = document.getElementById('dateSelect').value; 
+    return `py_monitor_${date}.csv`;
 }
 
 function isDateValid(date) {
@@ -152,6 +147,8 @@ function initMonitor() {
     document.getElementById('endTime').value = "23:59";
     document.getElementById('event-details').style.display = 'none';
     
+    document.getElementById('selectedHostnameSummary').textContent = 'Carregando...';
+
     Papa.parse(fullURL, {
         download: true, 
         header: true,   
@@ -171,7 +168,7 @@ function initMonitor() {
             if (allData.length === 0) {
                 showStatus('error', `Nenhuma linha de dados válida encontrada no arquivo.`);
                 availableHostnames = [];
-                populateHostnames(allData); // Limpa o menu
+                populateHostnames(allData); 
                 return;
             }
             
@@ -188,7 +185,7 @@ function initMonitor() {
 }
 
 // --------------------------------------------------------------------------
-// Lógica de Seleção Múltipla de Hostname (NOVO)
+// Lógica de Seleção Múltipla de Hostname
 // --------------------------------------------------------------------------
 
 function toggleDropdown() {
@@ -202,50 +199,83 @@ function toggleDropdown() {
     } else {
         menu.classList.add('show');
         toggleButton.setAttribute('aria-expanded', 'true');
+        
+        // Foca no campo de busca ao abrir o dropdown
+        const searchInput = document.getElementById('hostnameSearchInput');
+        if (searchInput) searchInput.focus();
+    }
+}
+
+// NOVO: Função para filtrar a lista de checkboxes
+function handleSearchInput(input) {
+    const filter = input.value.toUpperCase();
+    const menuContainer = document.getElementById('hostnameDropdownMenu');
+    
+    // Pula o primeiro elemento que é o input/seção de busca
+    const options = menuContainer.querySelectorAll('.filter-option'); 
+    
+    // Começa do índice 1 (após a linha de busca e HR) para esconder/mostrar apenas as máquinas
+    for (let i = 2; i < options.length; i++) {
+        const option = options[i];
+        const label = option.querySelector('label');
+        if (label) {
+            const textValue = label.textContent || label.innerText;
+            if (textValue.toUpperCase().indexOf(filter) > -1) {
+                option.style.display = "";
+            } else {
+                option.style.display = "none";
+            }
+        }
     }
 }
 
 function populateHostnames(data) {
-    // Armazena a lista de hostnames para uso global no filtro
     availableHostnames = [...new Set(data.map(d => d.Hostname).filter(Boolean))].sort();
     
     const menuContainer = document.getElementById('hostnameDropdownMenu');
-    const summarySpan = document.getElementById('selectedHostnameSummary');
-    
-    // Pega as seleções anteriores (se existirem)
     let selectedHostnames = getSelectedHostnames();
-    if (selectedHostnames.length === 0) {
-         // Default: Seleciona todos
+    if (selectedHostnames.length === 0 || selectedHostnames.includes('all')) {
         selectedHostnames = ['all']; 
     }
     
-    menuContainer.innerHTML = '';
+    // Usamos um array para construir o HTML para melhor desempenho
+    let htmlContent = [];
+    
+    // --- 0. Campo de Busca (ADICIONADO) ---
+    htmlContent.push(`
+        <div style="padding: 0 10px 5px 10px;">
+            <input type="text" id="hostnameSearchInput" placeholder="Pesquisar hostname..." 
+                   style="width: 100%; box-sizing: border-box;" 
+                   onkeyup="handleSearchInput(this)">
+        </div>
+        <hr/>
+    `);
 
-    // --- 1. Opção "all" (Selecionar/Desselecionar Todos) ---
+    // --- 1. Opção "all" ---
     const allChecked = selectedHostnames.includes('all') || availableHostnames.every(h => selectedHostnames.includes(h));
 
-    menuContainer.innerHTML += `
+    htmlContent.push(`
         <div class="filter-option">
             <input type="checkbox" id="host-all" value="all" 
                    onchange="handleHostnameToggle(this, true)" ${allChecked ? 'checked' : ''}>
             <label for="host-all">Todas as Máquinas</label>
         </div>
         <hr/>
-    `;
+    `);
 
     // --- 2. Opções individuais ---
     availableHostnames.forEach(host => {
         const isChecked = allChecked || selectedHostnames.includes(host);
-        menuContainer.innerHTML += `
+        htmlContent.push(`
             <div class="filter-option">
                 <input type="checkbox" id="host-${host}" value="${host}" 
                        onchange="handleHostnameToggle(this, false)" ${isChecked ? 'checked' : ''}>
                 <label for="host-${host}">${host}</label>
             </div>
-        `;
+        `);
     });
     
-    // Atualiza o resumo do botão
+    menuContainer.innerHTML = htmlContent.join('');
     updateHostnameSummary();
 }
 
@@ -256,12 +286,16 @@ function getSelectedHostnames() {
     const checkboxes = menu.querySelectorAll('input[type="checkbox"]:checked');
     const selected = Array.from(checkboxes).map(cb => cb.value);
     
-    // Se "all" estiver na lista OU nenhuma máquina individual estiver selecionada, retorna ['all']
     const individualSelected = selected.filter(val => val !== 'all');
     
-    if (selected.includes('all') || individualSelected.length === 0) {
+    if (individualSelected.length === 0 && availableHostnames.length > 0) {
         return ['all'];
     }
+    
+    if (selected.includes('all') || individualSelected.length === availableHostnames.length) {
+        return ['all'];
+    }
+    
     return individualSelected;
 }
 
@@ -269,10 +303,12 @@ function updateHostnameSummary() {
     const selectedHosts = getSelectedHostnames();
     const summarySpan = document.getElementById('selectedHostnameSummary');
     
+    const count = availableHostnames.length;
+
     if (selectedHosts.includes('all')) {
-        summarySpan.textContent = `Todas as Máquinas (${availableHostnames.length})`;
+        summarySpan.textContent = `Todas as Máquinas (${count})`;
     } else {
-        summarySpan.textContent = `${selectedHosts.length} Máquinas Selecionadas`;
+        summarySpan.textContent = `${selectedHosts.length} Máquinas Selecionadas (${count})`;
     }
 }
 
@@ -281,16 +317,13 @@ function handleHostnameToggle(checkbox, isAllOption) {
     const allCheckbox = document.getElementById('host-all');
 
     if (isAllOption) {
-        // Se "Todas" for marcada/desmarcada, aplica a todos
         const isChecked = checkbox.checked;
         const individualCheckboxes = menuContainer.querySelectorAll('input[type="checkbox"]:not(#host-all)');
         individualCheckboxes.forEach(cb => cb.checked = isChecked);
     } else {
-        // Se uma individual for desmarcada, desmarca "Todas"
         if (!checkbox.checked && allCheckbox && allCheckbox.checked) {
             allCheckbox.checked = false;
         }
-        // Se todas as individuais estiverem marcadas, marca "Todas"
         const individualCheckboxes = menuContainer.querySelectorAll('input[type="checkbox"]:not(#host-all)');
         const allIndividualChecked = Array.from(individualCheckboxes).every(cb => cb.checked);
         if (allIndividualChecked && allCheckbox) {
@@ -299,7 +332,7 @@ function handleHostnameToggle(checkbox, isAllOption) {
     }
     
     updateHostnameSummary();
-    filterChart();
+    filterChart(); 
 }
 
 function showStatus(type, message) {
@@ -340,7 +373,6 @@ function filterChart() {
     const startTimeStr = document.getElementById('startTime').value;
     const endTimeStr = document.getElementById('endTime').value;
     
-    // NOVO: Pega a lista de hostnames selecionados
     const selectedHosts = getSelectedHostnames();
 
     if (!allData || allData.length === 0) {
@@ -356,7 +388,6 @@ function filterChart() {
         
         const hhmm = ts.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', hour12: false });
         
-        // NOVO FILTRO: Hostname
         const hostOk = (selectedHosts.includes('all') || selectedHosts.includes(row.Hostname));
         
         const timeOk = (hhmm >= startTimeStr && hhmm <= endTimeStr);
@@ -407,13 +438,6 @@ function getChartContext(canvasId) {
     const canvas = document.getElementById(canvasId);
     return canvas ? canvas.getContext('2d') : null;
 }
-
-// ... (Restante das funções drawChart (Maquina, Velocidade, Meet, Tracert) omitidas por brevidade, 
-//      mas devem ser incluídas aqui. Elas não exigem mais alterações.)
-
-// [INÍCIO: FUNÇÕES DE DESENHO DE GRÁFICOS (DEVE SER MANTIDO)]
-// (coloque as funções drawMaquinaChart, drawVelocidadeChart, drawMeetCharts e drawTracertChart aqui)
-// (Mantive a lógica dos gráficos do código anterior para um script completo)
 
 // -------------------------------------------------------------
 // GRÁFICO 1: CARGA DETALHADA DO COMPUTADOR (MAX: 100 FIXO)
@@ -569,7 +593,6 @@ function drawTracertChart(lastRow, isDark) {
         tracertContainer.innerHTML = '<h3><i class="fas fa-route"></i> 4. Tracert do Meet (Rota por Salto)</h3><p>Nenhum dado de rota (Tracert) válido para plotagem.</p>';
         return;
     }
-    // Garante que o canvas está lá se houver dados
     if (!document.getElementById('tracertChartCanvas')) {
         tracertContainer.innerHTML = '<h3><i class="fas fa-route"></i> 4. Tracert do Meet (Rota por Salto)</h3><div class="chart-container"><canvas id="tracertChartCanvas"></canvas></div>';
     }
@@ -622,7 +645,6 @@ function drawTracertChart(lastRow, isDark) {
         }
     });
 }
-// [FIM: FUNÇÕES DE DESENHO DE GRÁFICOS]
 
 // ========= Interações e Inicialização =========
 function handleChartClick(event) {
@@ -691,24 +713,15 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('statusMessage').textContent = 'ERRO: PapaParse (CSV Reader) não está carregado. Verifique seu index.html.';
         return;
     }
-    if (typeof Chart === 'undefined') {
-        console.warn('AVISO: Chart.js não carregado. Gráficos desabilitados.');
-    }
-    if (typeof d3 === 'undefined') {
-        console.warn('AVISO: d3.js não carregado. O cálculo automático dos eixos pode não ser ideal.');
-    }
-
-
+    
     applySavedTheme();
 
-    // Define a data inicial (formato YYYY-MM-DD)
     document.getElementById('dateSelect').value = getCurrentDateFormatted();
 
     // Eventos 
     document.getElementById('btnBuscar').addEventListener('click', initMonitor);
     document.getElementById('dateSelect').addEventListener('change', initMonitor);
     document.getElementById('applyFiltersButton').addEventListener('click', filterChart);
-    // Não precisamos de evento 'change' no dropdown customizado, pois é tratado no handleHostnameToggle
     
     // Configura o fechamento do dropdown ao clicar fora
     document.addEventListener('click', (event) => {
@@ -716,8 +729,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const menu = document.getElementById('hostnameDropdownMenu');
         const toggleButton = document.getElementById('hostnameDropdownToggle');
         
-        // Verifica se o clique foi fora do container do dropdown
-        if (container && !container.contains(event.target) && menu.classList.contains('show')) {
+        if (container && menu && toggleButton && !container.contains(event.target) && menu.classList.contains('show')) {
             menu.classList.remove('show');
             toggleButton.setAttribute('aria-expanded', 'false');
         }
