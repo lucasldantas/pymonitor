@@ -27,6 +27,23 @@ function getFileName() {
     return `py_monitor_${date}.csv`;
 }
 
+// NOVO 1: Parse robusto do Timestamp
+function parseTimestamp(raw) {
+    if (!raw) return null;
+    const s = String(raw).trim();
+
+    // CSV no formato "YYYY-MM-DD HH:MM:SS"
+    if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(s)) {
+        // Tornar ISO usando 'T' garante parse consistente
+        const d = new Date(s.replace(' ', 'T'));
+        return isNaN(d) ? null : d;
+    }
+
+    // Fallback genérico
+    const d = new Date(s);
+    return isNaN(d.getTime()) ? null : d; // Usar getTime() para checagem robusta
+}
+
 // Função auxiliar para garantir que a string seja um float, retornando 0 em caso de falha.
 const safeParseFloat = (value) => {
     if (value === undefined || value === null || value === "") return 0;
@@ -37,7 +54,6 @@ const safeParseFloat = (value) => {
 
 // Normaliza nomes de colunas e tipos
 function typeConverter(row) {
-    // 1. VERIFICAÇÃO INICIAL: Timestamp
     if (!row.Timestamp) return null; 
 
     const newRow = {};
@@ -47,21 +63,16 @@ function typeConverter(row) {
         newRow[cleanKey] = row[key];
     }
     
-    // --- NOVO: CHECAGEM CRÍTICA DO HOSTNAME (Chave sanitizada é 'Hostname') ---
+    // --- CHECAGEM CRÍTICA DO HOSTNAME ---
     const hostnameValue = newRow.Hostname ? newRow.Hostname.trim() : '';
-    
-    // Se o Hostname estiver vazio, descarta o registro
     if (!hostnameValue || hostnameValue === "N/A" || hostnameValue === "") return null;
-    
-    // Armazena o hostname limpo de volta
     newRow.Hostname = hostnameValue; 
     
-    newRow.Timestamp = new Date(newRow.Timestamp);
+    // 1. APLICAÇÃO: Parse robusto do Timestamp
+    newRow.Timestamp = parseTimestamp(newRow.Timestamp);
+    if (!newRow.Timestamp) return null; // Não deixa data inválida passar
     
     // 2. Conversão Numérica CRÍTICA usando a chave sanitizada
-    // O problema de não plotar estava aqui, pois os valores eram strings inválidas.
-    
-    // Carga e Uso
     newRow.Uso_CPU = safeParseFloat(newRow.Uso_CPU);
     newRow.Uso_RAM = safeParseFloat(newRow.Uso_RAM);
     newRow.Uso_Disco = safeParseFloat(newRow.Uso_Disco);
@@ -78,15 +89,12 @@ function typeConverter(row) {
     newRow.Jitter_Meetms = safeParseFloat(newRow.Jitter_Meetms); 
     newRow.Perda_Meet = safeParseFloat(newRow.Perda_Meet);       
 
-    // 3. Hops (Garante que a latência seja numérica)
+    // Hops
     for (let i = 1; i <= MAX_TTL; i++) {
         const ipKey_Sanitizada = `Hop_IP_${String(i).padStart(2, '0')}`;
         const latKey_Sanitizada = `Hop_LAT_${String(i).padStart(2, '0')}ms`;
         
-        // Aplica conversão numérica APENAS na Latência
         newRow[latKey_Sanitizada] = safeParseFloat(newRow[latKey_Sanitizada]);
-        
-        // Garante que o IP é uma string
         newRow[ipKey_Sanitizada] = (newRow[ipKey_Sanitizada] ?? '').toString();
     }
     
@@ -141,18 +149,17 @@ function initMonitor() {
     document.getElementById('endTime').value = "23:59";
     document.getElementById('event-details').style.display = 'none';
     
-    // --- NOVO: Garantir que o filtro Hostname tenha o valor padrão 'all' ---
+    // Garantir que o filtro Hostname tenha o valor padrão 'all'
     const hostnameInput = document.getElementById('hostnameInput');
     if (!hostnameInput.value) {
         hostnameInput.value = 'all';
     }
-    // --- FIM NOVO ---
 
     Papa.parse(fullURL, {
         download: true, 
         header: true,   
         skipEmptyLines: true,
-        worker: false, // Desabilita worker para evitar falhas de threading
+        worker: false,
         downloadRequestHeaders: {
             'Cache-Control': 'no-cache', 
             'Pragma': 'no-cache',
@@ -161,14 +168,13 @@ function initMonitor() {
 
         complete: (results) => {
             
-            // FILTRA DADOS INVÁLIDOS E CONVERTE TIPOS
             allData = results.data.map(typeConverter).filter(r => r !== null); 
             destroyAllCharts(); 
             
             if (allData.length === 0) {
                 showStatus('error', `Nenhuma linha de dados válida encontrada no arquivo.`);
                 // Limpa as opções da lista de máquinas
-                document.getElementById('hostnames').innerHTML = '<option value="all">Todas as Máquinas</option>';
+                document.getElementById('hostnames').innerHTML = '<option value="all" label="Todas as Máquinas"></option>';
                 return;
             }
             
@@ -184,30 +190,31 @@ function initMonitor() {
     });
 }
 
+// AJUSTE 3: Lista de hostnames sempre populada
 function populateHostnames(data) {
-    const hostnames = [...new Set(data.map(d => d.Hostname))].sort();
+    // Filtra valores nulos/vazios antes de criar o Set
+    const hostnames = [...new Set(data.map(d => d.Hostname).filter(Boolean))].sort();
     const datalist = document.getElementById('hostnames');
     const input = document.getElementById('hostnameInput');
-    
-    const selectedValue = input.value;
+    const selectedValue = input.value || 'all'; // Usa 'all' se estiver vazio
 
-    datalist.innerHTML = ''; // Limpa antes de preencher
+    datalist.innerHTML = '';
+
+    // Opção 'all'
     const allOption = document.createElement('option');
     allOption.value = 'all';
-    allOption.textContent = 'Todas as Máquinas';
+    allOption.label = 'Todas as Máquinas'; // <- Adiciona label para melhor exibição
     datalist.appendChild(allOption);
 
     hostnames.forEach(host => {
         const option = document.createElement('option');
         option.value = host;
+        option.label = host; // <- Adiciona label para melhor exibição
         datalist.appendChild(option);
     });
 
-    if (hostnames.includes(selectedValue) || selectedValue === 'all') {
-         input.value = selectedValue;
-    } else {
-        input.value = 'all'; 
-    }
+    // Se o valor selecionado não existir mais, volta para 'all'
+    input.value = hostnames.includes(selectedValue) ? selectedValue : 'all';
 }
 
 function showStatus(type, message) {
@@ -253,8 +260,10 @@ function filterChart() {
 
     const filtered = allData.filter(row => {
         const ts = row.Timestamp;
-        if (!(ts instanceof Date)) return false;
-
+        
+        // AJUSTE 2: Não deixe datas inválidas passarem pelo filtro
+        if (!(ts instanceof Date) || isNaN(ts)) return false; 
+        
         const hhmm = ts.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', hour12: false });
         const hostOk = (hostFilter === 'all' || row.Hostname === hostFilter);
         const timeOk = (hhmm >= startTimeStr && hhmm <= endTimeStr);
@@ -310,7 +319,11 @@ function getChartContext(canvasId) {
 // GRÁFICO 1: CARGA DETALHADA DO COMPUTADOR (MAX: 100 FIXO)
 // -------------------------------------------------------------
 function drawMaquinaChart(rows, isDark) {
-    const labels = rows.map(r => r.Timestamp ? r.Timestamp.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '');
+    // AJUSTE 2: Garantir que a data seja válida ao gerar labels
+    const labels = rows.map(r => (r.Timestamp && !isNaN(r.Timestamp)) 
+      ? r.Timestamp.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', hour12: false })
+      : ''
+    );
     const dataCPU = rows.map(r => r.Uso_CPU);
     const dataRAM = rows.map(r => r.Uso_RAM);
     const dataDisco = rows.map(r => r.Uso_Disco);
@@ -350,7 +363,11 @@ function drawMaquinaChart(rows, isDark) {
 // GRÁFICO 2: TESTE DE VELOCIDADE (Download, Upload, Latência)
 // -------------------------------------------------------------
 function drawVelocidadeChart(rows, isDark) {
-    const labels = rows.map(r => r.Timestamp ? r.Timestamp.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '');
+    // AJUSTE 2: Garantir que a data seja válida ao gerar labels
+    const labels = rows.map(r => (r.Timestamp && !isNaN(r.Timestamp)) 
+      ? r.Timestamp.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', hour12: false })
+      : ''
+    );
     const dataDownload = rows.map(r => r.DownloadMbps);
     const dataUpload = rows.map(r => r.UploadMbps);
     const dataLatency = rows.map(r => r.Latencia_Speedtestms);
@@ -392,7 +409,11 @@ function drawVelocidadeChart(rows, isDark) {
 // GRÁFICO 3: QUALIDADE DO MEET (SCORE MAX: 100 FIXO)
 // -------------------------------------------------------------
 function drawMeetCharts(rows, isDark) {
-    const labels = rows.map(r => r.Timestamp ? r.Timestamp.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '');
+    // AJUSTE 2: Garantir que a data seja válida ao gerar labels
+    const labels = rows.map(r => (r.Timestamp && !isNaN(r.Timestamp)) 
+      ? r.Timestamp.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', hour12: false })
+      : ''
+    );
     const dataScore = rows.map(r => r.Saude_Meet0100);
     const dataJitter = rows.map(r => r.Jitter_Meetms);
     const dataLatency = rows.map(r => r.Latencia_Meet_Media_ms);
@@ -454,6 +475,7 @@ function drawTracertChart(lastRow, isDark) {
     const labels = tracertData.map(d => `Hop ${d.hop}`);
     const dataLat = tracertData.map(d => d.latency);
     const dataIps = tracertData.map(d => d.ip);
+    const last = dataIps.length - 1; // Para destacar o último hop
 
     const maxLat = d3.max(dataLat) || 50;
     const yMax = Math.max(50, Math.ceil(maxLat / 50) * 50);
@@ -468,8 +490,9 @@ function drawTracertChart(lastRow, isDark) {
             datasets: [{
                 label: 'Latência por Salto (ms)',
                 data: dataLat,
-                backgroundColor: dataIps.map(ip => ip.includes('DESTINO') ? '#00796B' : '#FF5722'),
-                borderColor: dataIps.map(ip => ip.includes('DESTINO') ? '#00796B' : '#FF5722'),
+                // AJUSTE 4: Destacar o último Hop como destino
+                backgroundColor: dataIps.map((_, i) => i === last ? '#00796B' : '#FF5722'),
+                borderColor:     dataIps.map((_, i) => i === last ? '#00796B' : '#FF5722'),
                 borderWidth: 1
             }]
         },
