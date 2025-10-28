@@ -27,7 +27,7 @@ function getFileName() {
     return `py_monitor_${date}.csv`;
 }
 
-// NOVO: Função auxiliar para garantir que a string seja um float, retornando 0 em caso de falha.
+// Função auxiliar para garantir que a string seja um float, retornando 0 em caso de falha.
 const safeParseFloat = (value) => {
     if (value === undefined || value === null || value === "") return 0;
     // Tenta converter, garantindo que o separador decimal seja o ponto (compatível com CSV)
@@ -35,8 +35,9 @@ const safeParseFloat = (value) => {
 }
 
 
-// Normaliza nomes de colunas e tipos (CORRIGIDO: Acesso a dados zerados)
+// Normaliza nomes de colunas e tipos
 function typeConverter(row) {
+    // 1. VERIFICAÇÃO INICIAL: Timestamp
     if (!row.Timestamp) return null; 
 
     const newRow = {};
@@ -46,24 +47,36 @@ function typeConverter(row) {
         newRow[cleanKey] = row[key];
     }
     
+    // --- NOVO: CHECAGEM CRÍTICA DO HOSTNAME (Chave sanitizada é 'Hostname') ---
+    const hostnameValue = newRow.Hostname ? newRow.Hostname.trim() : '';
+    
+    // Se o Hostname estiver vazio, descarta o registro
+    if (!hostnameValue || hostnameValue === "N/A" || hostnameValue === "") return null;
+    
+    // Armazena o hostname limpo de volta
+    newRow.Hostname = hostnameValue; 
+    
     newRow.Timestamp = new Date(newRow.Timestamp);
     
-    // 1. Carga do Computador e Uso (Agora usando a chave sanitizada e safeParseFloat)
+    // 2. Conversão Numérica CRÍTICA usando a chave sanitizada
+    // O problema de não plotar estava aqui, pois os valores eram strings inválidas.
+    
+    // Carga e Uso
     newRow.Uso_CPU = safeParseFloat(newRow.Uso_CPU);
     newRow.Uso_RAM = safeParseFloat(newRow.Uso_RAM);
     newRow.Uso_Disco = safeParseFloat(newRow.Uso_Disco);
-    newRow.Carga_Computador = safeParseFloat(newRow.Carga_Computador); // Carga_Computador(0-100) -> Carga_Computador
+    newRow.Carga_Computador = safeParseFloat(newRow.Carga_Computador); 
 
     // Velocidade
-    newRow.DownloadMbps = safeParseFloat(newRow.DownloadMbps); // Download(Mbps) -> DownloadMbps
-    newRow.UploadMbps = safeParseFloat(newRow.UploadMbps);     // Upload(Mbps) -> UploadMbps
-    newRow.Latencia_Speedtestms = safeParseFloat(newRow.Latencia_Speedtestms); // Latencia_Speedtest(ms) -> Latencia_Speedtestms
+    newRow.DownloadMbps = safeParseFloat(newRow.DownloadMbps); 
+    newRow.UploadMbps = safeParseFloat(newRow.UploadMbps);     
+    newRow.Latencia_Speedtestms = safeParseFloat(newRow.Latencia_Speedtestms); 
 
-    // 2. Saúde do Meet
-    newRow.Saude_Meet0100 = safeParseFloat(newRow.Saude_Meet0100); // Saude_Meet(0-100) -> Saude_Meet0100
-    newRow.Latencia_Meet_Media_ms = safeParseFloat(newRow.Latencia_Meet_Media_ms); // Latencia_Meet_Media(ms) -> Latencia_Meet_Media_ms
-    newRow.Jitter_Meetms = safeParseFloat(newRow.Jitter_Meetms); // Jitter_Meet(ms) -> Jitter_Meetms
-    newRow.Perda_Meet = safeParseFloat(newRow.Perda_Meet);       // Perda_Meet(%) -> Perda_Meet
+    // Saúde do Meet
+    newRow.Saude_Meet0100 = safeParseFloat(newRow.Saude_Meet0100); 
+    newRow.Latencia_Meet_Media_ms = safeParseFloat(newRow.Latencia_Meet_Media_ms); 
+    newRow.Jitter_Meetms = safeParseFloat(newRow.Jitter_Meetms); 
+    newRow.Perda_Meet = safeParseFloat(newRow.Perda_Meet);       
 
     // 3. Hops (Garante que a latência seja numérica)
     for (let i = 1; i <= MAX_TTL; i++) {
@@ -127,6 +140,13 @@ function initMonitor() {
     document.getElementById('startTime').value = "00:00";
     document.getElementById('endTime').value = "23:59";
     document.getElementById('event-details').style.display = 'none';
+    
+    // --- NOVO: Garantir que o filtro Hostname tenha o valor padrão 'all' ---
+    const hostnameInput = document.getElementById('hostnameInput');
+    if (!hostnameInput.value) {
+        hostnameInput.value = 'all';
+    }
+    // --- FIM NOVO ---
 
     Papa.parse(fullURL, {
         download: true, 
@@ -141,11 +161,14 @@ function initMonitor() {
 
         complete: (results) => {
             
+            // FILTRA DADOS INVÁLIDOS E CONVERTE TIPOS
             allData = results.data.map(typeConverter).filter(r => r !== null); 
             destroyAllCharts(); 
             
             if (allData.length === 0) {
                 showStatus('error', `Nenhuma linha de dados válida encontrada no arquivo.`);
+                // Limpa as opções da lista de máquinas
+                document.getElementById('hostnames').innerHTML = '<option value="all">Todas as Máquinas</option>';
                 return;
             }
             
@@ -244,13 +267,11 @@ function filterChart() {
 }
 
 function destroyAllCharts() {
-    // 1. Destrói as instâncias Chart.js existentes
     if (chartInstanceMeet) chartInstanceMeet.destroy();
     if (chartInstanceMaquina) chartInstanceMaquina.destroy();
     if (chartInstanceVelocidade) chartInstanceVelocidade.destroy(); 
     if (chartInstanceTracert) chartInstanceTracert.destroy();
      
-    // 2. Zera as variáveis de instância (CRUCIAL para estabilidade)
     chartInstanceMeet = null;
     chartInstanceMaquina = null;
     chartInstanceVelocidade = null;
@@ -262,7 +283,7 @@ function updateChartTheme() {
 }
 
 function drawAllCharts(dataToDisplay) {
-    destroyAllCharts(); // Limpeza crucial no início
+    destroyAllCharts(); 
      
     if (!dataToDisplay || dataToDisplay.length === 0) {
         document.getElementById('statusMessage').textContent = "Nenhum dado encontrado no intervalo/hostname.";
@@ -270,7 +291,6 @@ function drawAllCharts(dataToDisplay) {
     }
     const isDark = document.body.classList.contains('dark-mode');
     
-    // ORDEM SOLICITADA:
     drawMaquinaChart(dataToDisplay, isDark);
     drawVelocidadeChart(dataToDisplay, isDark);
     drawMeetCharts(dataToDisplay, isDark);
@@ -294,7 +314,7 @@ function drawMaquinaChart(rows, isDark) {
     const dataCPU = rows.map(r => r.Uso_CPU);
     const dataRAM = rows.map(r => r.Uso_RAM);
     const dataDisco = rows.map(r => r.Uso_Disco);
-    const dataCarga = rows.map(r => r.Carga_Computador); // Carga Média
+    const dataCarga = rows.map(r => r.Carga_Computador); 
     
     const color = isDark ? '#f0f0f0' : '#333';
     const grid = isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)';
@@ -319,7 +339,6 @@ function drawMaquinaChart(rows, isDark) {
             responsive: true, maintainAspectRatio: false, color: color,
             scales: {
                 x: { title: { display:true, text:'Horário (HH:MM)', color }, grid:{ color: grid }, ticks:{ color } },
-                // MAX: 100 FIXO
                 y: { min:0, max: maxUsage, title:{ display:true, text:'Uso (%) / Carga (0-100)', color }, grid:{ color: grid }, ticks:{ color } }
             },
             plugins: { title: { display:true, text:'1. Carga Detalhada do Computador', color }, legend:{ labels:{ color } } }
@@ -403,7 +422,6 @@ function drawMeetCharts(rows, isDark) {
             onClick: handleChartClick,
             scales: {
                 x: { title:{ display:true, text:'Horário (HH:MM)', color }, grid:{ color: grid }, ticks:{ color } },
-                // Eixo Y-Score FIXO em 100
                 'y-score': { type:'linear', position:'left', min:0, max:100, title:{ display:true, text:'Saúde Meet (Score)', color }, grid:{ color: grid }, ticks:{ color, stepSize:25 } },
                 'y-latency': { type:'linear', position:'right', min:0, max: latMax, title:{ display:true, text:'Latência / Jitter (ms)', color }, grid:{ drawOnChartArea:false, color: grid }, ticks:{ color } }
             },
@@ -424,7 +442,7 @@ function drawTracertChart(lastRow, isDark) {
         const latKey = `Hop_LAT_${String(i).padStart(2, '0')}ms`;
         const ip = (lastRow[ipKey] ?? '').replace(' [DESTINO]', '');
         const lat = lastRow[latKey];
-        if (lat === 0 || ip === '' || ip === 'N/A') continue; // Adicionado 'N/A'
+        if (lat === 0 || ip === '' || ip === 'N/A') continue; 
         tracertData.push({ hop: i, ip, latency: lat });
     }
 
@@ -551,7 +569,6 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('statusMessage').textContent = 'AVISO: Chart.js não carregado. Gráficos desabilitados.';
     }
     if (typeof d3 === 'undefined') {
-        // d3 é usado para calcular max nos eixos
         console.warn('AVISO: d3.js não carregado. O cálculo automático dos eixos pode não ser ideal.');
     }
 
