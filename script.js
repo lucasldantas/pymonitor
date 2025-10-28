@@ -1,12 +1,12 @@
 // ========= Config =========
 const AUTO_UPDATE_INTERVAL = 10 * 60 * 1000; // 10 minutos em milissegundos
-const BASE_CSV_URL = './'; // caminho relativo (ex.: GitHub Pages)
+const BASE_CSV_URL = './data/'; // Caminho corrigido para a pasta 'data/'
 const MAX_TTL = 30; // Limite fixo de hops para o CSV (Deve ser igual ao Python)
 
 // ========= Estado (Instâncias de Gráfico) =========
 let allData = [];
 let currentDataToDisplay = [];
-let autoUpdateTimer = null;
+let autoUpdateTimer = null; 
 
 let chartInstanceMeet = null;
 let chartInstanceMaquina = null;
@@ -27,45 +27,45 @@ function getFileName() {
     return `py_monitor_${date}.csv`;
 }
 
-// Normaliza nomes de colunas e tipos
+// Normaliza nomes de colunas e tipos (CORRIGIDO: Acesso a dados zerados)
 function typeConverter(row) {
     if (!row.Timestamp) return null; 
 
     const newRow = {};
     for (const key in row) {
-        // remove (), %, espaços e ponto único para facilitar acesso
+        // Sanitiza a chave: remove (), %, espaços e ponto único
         const cleanKey = key.replace(/[\(\)%]/g, '').replace(/ /g, '_').replace('.', ''); 
         newRow[cleanKey] = row[key];
     }
     
-    // Tipos básicos
     newRow.Timestamp = new Date(newRow.Timestamp);
+    
+    // 1. Carga do Computador e Uso (FIXO em 100)
     newRow.Uso_CPU = parseFloat(newRow.Uso_CPU) || 0;
     newRow.Uso_RAM = parseFloat(newRow.Uso_RAM) || 0;
     newRow.Uso_Disco = parseFloat(newRow.Uso_Disco) || 0;
-    newRow.Carga_Computador = parseInt(newRow.Carga_Computador) || 0;
+    // CORREÇÃO: Lê o valor da carga antes de sobrescrever a chave
+    newRow.Carga_Computador = parseInt(row["Carga_Computador(0-100)"] || newRow.Carga_Computador) || 0;
 
+    // Velocidade
     newRow.DownloadMbps = parseFloat(newRow.DownloadMbps) || 0;
     newRow.UploadMbps = parseFloat(newRow.UploadMbps) || 0;
     newRow.Latencia_Speedtestms = parseFloat(newRow.Latencia_Speedtestms) || 0;
 
-    // >>> CORREÇÃO CRÍTICA APLICADA AQUI: Busca a chave correta para o Score do Meet
-    // Pesquisa a chave que contém 'saude', 'meet' e '100' (ex: Saude_Meet_0-100)
+    // 2. Saúde do Meet
+    // Pesquisa o Score (Chave que contém 'saude', 'meet' e '100')
     const meetScoreKey = Object.keys(newRow).find(key => key.toLowerCase().includes('saude') && key.toLowerCase().includes('meet') && key.includes('100'));
-    
-    // Atribui o valor encontrado (90 ou 95) à chave esperada pelo gráfico (Saude_Meet0100)
     newRow.Saude_Meet0100 = meetScoreKey ? parseInt(newRow[meetScoreKey]) || 0 : 0;
-    // FIM DA CORREÇÃO
-
-    // Tenta diferentes chaves para latência média (compatibilidade com CSVs antigos)
-    const latMedia =
-        parseFloat(newRow.Latencia_Meet_Media_ms ?? newRow.Latencia_Meet_Mediaps ?? newRow.Latencia_Meet_Media) || 0;
-    newRow.Latencia_Meet_Media_ms = latMedia;
+    
+    // CORREÇÃO CRÍTICA: Latência Média do Meet
+    // Pesquisa a chave Latência Média diretamente do row original antes da sanitização
+    const latMeetKey = Object.keys(row).find(key => key.toLowerCase().includes('latencia') && key.toLowerCase().includes('media'));
+    newRow.Latencia_Meet_Media_ms = latMeetKey ? parseFloat(row[latMeetKey]) || 0 : 0; // Se não encontrar, é zero.
 
     newRow.Jitter_Meetms = parseFloat(newRow.Jitter_Meetms) || 0;
     newRow.Perda_Meet = parseFloat(newRow.Perda_Meet) || 0;
 
-    // hops
+    // 3. Hops
     for (let i = 1; i <= MAX_TTL; i++) {
         const latKey = `Hop_LAT_${String(i).padStart(2, '0')}ms`;
         const ipKey  = `Hop_IP_${String(i).padStart(2, '0')}`;
@@ -76,7 +76,10 @@ function typeConverter(row) {
     return newRow;
 }
 
-// ========= Tema =========
+// --------------------------------------------------------------------------
+// Lógica de Tema e Inicialização
+// --------------------------------------------------------------------------
+
 function toggleDarkMode() {
     const isDark = document.body.classList.toggle('dark-mode');
     localStorage.setItem('darkMode', isDark);
@@ -91,10 +94,9 @@ function applySavedTheme() {
         checkbox.checked = true;
     }
     checkbox.addEventListener('change', toggleDarkMode);
-    return saved === 'true';
+    return saved === 'true'; 
 }
 
-// ========= Auto Update =========
 function startAutoUpdate() {
     if (autoUpdateTimer) clearInterval(autoUpdateTimer);
     autoUpdateTimer = setInterval(() => {
@@ -103,7 +105,10 @@ function startAutoUpdate() {
     }, AUTO_UPDATE_INTERVAL);
 }
 
-// ========= Carregamento CSV =========
+// --------------------------------------------------------------------------
+// Lógica de Carregamento e PapaParse
+// --------------------------------------------------------------------------
+
 function initMonitor() {
     const isDark = applySavedTheme(); 
     
@@ -123,7 +128,7 @@ function initMonitor() {
         download: true, 
         header: true,   
         skipEmptyLines: true,
-        worker: false, // Evita falhas de threading
+        worker: false, // Desabilita worker para evitar falhas de threading
         downloadRequestHeaders: {
             'Cache-Control': 'no-cache', 
             'Pragma': 'no-cache',
@@ -178,10 +183,6 @@ function populateHostnames(data) {
     }
 }
 
-// --------------------------------------------------------------------------
-// Lógica de Status e Animação
-// --------------------------------------------------------------------------
-
 function showStatus(type, message) {
     const icon = document.getElementById('statusIcon');
     const msg = document.getElementById('statusMessage');
@@ -225,7 +226,7 @@ function filterChart() {
 
     const filtered = allData.filter(row => {
         const ts = row.Timestamp;
-        if (!(ts instanceof Date) || isNaN(ts)) return false;
+        if (!(ts instanceof Date)) return false;
 
         const hhmm = ts.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', hour12: false });
         const hostOk = (hostFilter === 'all' || row.Hostname === hostFilter);
@@ -260,7 +261,7 @@ function drawAllCharts(dataToDisplay) {
     destroyAllCharts(); // Limpeza crucial no início
     
     if (!dataToDisplay || dataToDisplay.length === 0) {
-        document.getElementById('statusMessage').textContent = 'Nenhum dado encontrado no intervalo/hostname.';
+        document.getElementById('statusMessage').textContent = "Nenhum dado encontrado no intervalo/hostname.";
         return;
     }
     const isDark = document.body.classList.contains('dark-mode');
@@ -272,15 +273,14 @@ function drawAllCharts(dataToDisplay) {
     drawTracertChart(dataToDisplay[dataToDisplay.length - 1], isDark);
 }
 
-// ========= Helpers de Gráfico =========
+// -----------------------------------
+// FUNÇÕES DE DESENHO DE GRÁFICOS (Chart.js)
+// -----------------------------------
+
 function getChartContext(canvasId) {
     const canvas = document.getElementById(canvasId);
     return canvas ? canvas.getContext('2d') : null;
 }
-
-// -----------------------------------
-// FUNÇÕES DE DESENHO DE GRÁFICOS (Chart.js)
-// -----------------------------------
 
 // -------------------------------------------------------------
 // GRÁFICO 1: CARGA DETALHADA DO COMPUTADOR (MAX: 100 FIXO)
@@ -290,8 +290,8 @@ function drawMaquinaChart(rows, isDark) {
     const dataCPU = rows.map(r => r.Uso_CPU);
     const dataRAM = rows.map(r => r.Uso_RAM);
     const dataDisco = rows.map(r => r.Uso_Disco);
-    const dataCarga = rows.map(r => r.Carga_Computador);
-
+    const dataCarga = rows.map(r => r.Carga_Computador); // Carga Média
+    
     const color = isDark ? '#f0f0f0' : '#333';
     const grid = isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)';
 
