@@ -12,9 +12,9 @@
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" rel="stylesheet"/>
 
     <style>
-        /* Variáveis de Cores */
-        :root { --bg-light: #f7f7f7; --bg-card: #ffffff; --text-dark: #2c3e50; --primary: #3498db; --shadow: 0 4px 8px rgba(0, 0, 0, 0.05); --border: #e0e0e0; --primary-rgb: 52, 152, 219; }
-        body.dark-mode { --bg-light: #1e2124; --bg-card: #282b30; --text-dark: #ffffff; --primary: #7289da; --shadow: 0 4px 8px rgba(0, 0, 0, 0.3); --border: #444; --primary-rgb: 114, 137, 218; }
+        /* Variáveis de Cores (Dark Mode está no escopo anterior) */
+        :root { --bg-light: #f7f7f7; --bg-card: #ffffff; --text-dark: #2c3e50; --primary: #3498db; --shadow: 0 4px 8px rgba(0, 0, 0, 0.05); --border: #e0e0e0; }
+        body.dark-mode { --bg-light: #1e2124; --bg-card: #282b30; --text-dark: #ffffff; --primary: #7289da; --shadow: 0 4px 8px rgba(0, 0, 0, 0.3); --border: #444; }
 
         /* Layout e Tipografia */
         body { font-family: 'Roboto', sans-serif; margin: 0; background: var(--bg-light); color: var(--text-dark); transition: background-color .3s, color .3s; }
@@ -26,120 +26,30 @@
         .chart-container { position: relative; height: 420px; background: var(--bg-card); padding: 25px; border-radius: 12px; box-shadow: var(--shadow); margin-bottom: 25px; }
         
         /* Filtros */
-        .filter-group { 
-            display: flex; 
-            align-items: center; 
-            flex-wrap: wrap; 
-            gap: 10px; 
-            margin-bottom: 15px; 
-        }
-        .filter-group label { 
-            font-weight: 500; 
-            /* Permite que as labels se ajustem, economizando espaço */
-            min-width: auto; 
-        }
+        .filter-group { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 15px; }
+        .filter-group label { font-weight: 500; min-width: 120px; }
         
-        /* NOVO: Agrupamento de horário para manter "até" e inputs juntos */
-        .time-range-group {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-
         /* ESTILO DOS INPUTS GERAIS E BOTÕES */
-        .filter-group input:not([type="checkbox"]), .filter-group select, .controls button.btn-filter-action, .dropdown-toggle {
+        .filter-group input:not([type="checkbox"]), .filter-group select, .filter-group button {
             padding: 10px; border: 1px solid var(--border); border-radius: 8px;
             background: transparent; color: var(--text-dark);
             transition: border-color .3s;
         }
         .controls button { background: var(--primary); color: #fff; border: 0; font-weight: 700; cursor: pointer; }
-        .controls button:hover { opacity: 0.9; }
 
         /* Animação de Status e Carregamento */
         #statusContainer { display: flex; align-items: center; margin-bottom: 15px; height: 20px; }
         #statusIcon { margin-right: 10px; font-size: 1.2em; }
         .loading .fas { color: var(--primary); animation: spin 1s linear infinite; }
         .success .fas { color: #2ecc71; }
-        .error .fas { color: #e74c3c; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
         
+        /* CSS dos Gráficos (Mantenha a altura fixa) */
+        .chart-container canvas { width: 100% !important; height: 100% !important; }
+
         /* Estilo Detalhes (Mantidos) */
         #event-details { display: none; border-left: 5px solid #27ae60; background: var(--bg-card); padding: 25px; border-radius: 12px; box-shadow: var(--shadow); margin-bottom: 25px; }
-
-
-        /* --- CSS PARA SELEÇÃO MÚLTIPLA --- */
-        .hostname-control {
-            position: relative;
-            min-width: 200px;
-            flex-grow: 1; 
-            max-width: 300px; 
-        }
-        .dropdown-toggle {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            width: 100%;
-            cursor: pointer;
-            text-align: left;
-            white-space: nowrap; 
-            overflow: hidden;
-            text-overflow: ellipsis; 
-        }
-        .dropdown-menu {
-            position: absolute;
-            z-index: 1000;
-            top: 100%;
-            left: 0;
-            width: 100%; 
-            background: var(--bg-card);
-            border: 1px solid var(--border);
-            border-top: none;
-            border-radius: 0 0 8px 8px;
-            box-shadow: var(--shadow);
-            max-height: 250px;
-            overflow-y: auto;
-            display: none;
-            padding: 5px 0;
-        }
-        .dropdown-menu.show {
-            display: block;
-        }
-        .filter-option {
-            padding: 8px 15px;
-            display: flex;
-            align-items: center;
-            cursor: pointer;
-            transition: background-color 0.2s;
-        }
-        .filter-option label {
-            cursor: pointer;
-            margin-bottom: 0;
-            min-width: auto;
-            font-weight: 400;
-            margin-left: 10px;
-            flex-grow: 1; 
-            white-space: nowrap; 
-            overflow: hidden;
-            text-overflow: ellipsis; 
-        }
-        .filter-option:hover {
-            background-color: rgba(var(--primary-rgb, 52, 152, 219), 0.1);
-        }
-        .dark-mode .filter-option:hover {
-            background-color: rgba(var(--primary-rgb, 114, 137, 218), 0.2);
-        }
-        .dropdown-menu hr {
-            border: 0;
-            border-top: 1px solid var(--border);
-            margin: 5px 0;
-        }
-        .dropdown-arrow {
-            transition: transform 0.3s;
-            flex-shrink: 0; 
-        }
-        .dropdown-toggle[aria-expanded="true"] .dropdown-arrow {
-            transform: rotate(180deg);
-        }
+        
     </style>
 </head>
 <body>
@@ -167,26 +77,21 @@
             <div class="filter-group">
                 <label for="dateSelect">1. Data do Arquivo (.csv):</label>
                 <input type="text" id="dateSelect" placeholder="DD-MM-YY" style="width: 100px; text-align:center;" />
-                <button id="btnBuscar" class="btn-filter-action"><i class="fas fa-search"></i> Buscar Data</button>
-                
-                <label>2. Máquina (Hostname):</label>
-                <div class="hostname-control" id="hostnameDropdownContainer">
-                    <button class="dropdown-toggle" id="hostnameDropdownToggle" aria-expanded="false" onclick="toggleDropdown()">
-                        <span id="selectedHostnameSummary">Carregando...</span>
-                        <i class="fas fa-chevron-down dropdown-arrow"></i>
-                    </button>
-                    <div class="dropdown-menu" id="hostnameDropdownMenu">
-                        </div>
-                </div>
-                
-                <label>3. Intervalo de Horário:</label>
-                <div class="time-range-group">
-                    <input type="time" id="startTime" value="00:00" style="width: 90px;" />
-                    <span style="font-weight: 500;">até</span>
-                    <input type="time" id="endTime" value="23:59" style="width: 90px;" />
-                </div>
+                <button id="btnBuscar"><i class="fas fa-search"></i> Buscar Data</button>
+            </div>
 
-                <button id="applyFiltersButton" class="btn-filter-action"><i class="fas fa-filter"></i> Aplicar Filtros</button>
+            <div class="filter-group">
+                <label for="hostnameInput">2. Máquina (Hostname):</label>
+                <input type="text" id="hostnameInput" list="hostnames" placeholder="Buscar ou selecionar hostname..." style="min-width: 200px;">
+                <datalist id="hostnames">
+                    </datalist>
+
+                <label for="startTime">3. Intervalo de Horário:</label>
+                <input type="time" id="startTime" value="00:00" style="width: 90px;" />
+                <label for="endTime">até</label>
+                <input type="time" id="endTime" value="23:59" style="width: 90px;" />
+
+                <button id="applyFiltersButton"><i class="fas fa-filter"></i> Aplicar Filtros</button>
             </div>
         </div>
 
