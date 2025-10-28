@@ -6,7 +6,7 @@ const MAX_TTL = 30; // Limite fixo de hops para o CSV (Deve ser igual ao Python)
 // ========= Estado (Instâncias de Gráfico) =========
 let allData = [];
 let currentDataToDisplay = [];
-let autoUpdateTimer = null; 
+let autoUpdateTimer = null; 
 
 let chartInstanceMeet = null;
 let chartInstanceMaquina = null;
@@ -27,50 +27,54 @@ function getFileName() {
     return `py_monitor_${date}.csv`;
 }
 
+// NOVO: Função auxiliar para garantir que a string seja um float, retornando 0 em caso de falha.
+const safeParseFloat = (value) => {
+    if (value === undefined || value === null || value === "") return 0;
+    // Tenta converter, garantindo que o separador decimal seja o ponto (compatível com CSV)
+    return parseFloat(String(value).trim().replace(',', '.')) || 0;
+}
+
+
 // Normaliza nomes de colunas e tipos (CORRIGIDO: Acesso a dados zerados)
 function typeConverter(row) {
-    if (!row.Timestamp) return null; 
+    if (!row.Timestamp) return null; 
 
     const newRow = {};
     for (const key in row) {
-        // Sanitiza a chave: remove (), %, espaços e ponto único
-        const cleanKey = key.replace(/[\(\)%]/g, '').replace(/ /g, '_').replace('.', ''); 
+        // Sanitiza a chave: remove (), %, e espaços (mantendo o ponto).
+        const cleanKey = key.replace(/[\(\)%]/g, '').replace(/ /g, '_'); 
         newRow[cleanKey] = row[key];
     }
     
     newRow.Timestamp = new Date(newRow.Timestamp);
     
-    // 1. Carga do Computador e Uso (FIXO em 100)
-    newRow.Uso_CPU = parseFloat(newRow.Uso_CPU) || 0;
-    newRow.Uso_RAM = parseFloat(newRow.Uso_RAM) || 0;
-    newRow.Uso_Disco = parseFloat(newRow.Uso_Disco) || 0;
-    // CORREÇÃO: Lê o valor da carga antes de sobrescrever a chave
-    newRow.Carga_Computador = parseInt(row["Carga_Computador(0-100)"] || newRow.Carga_Computador) || 0;
+    // 1. Carga do Computador e Uso (Agora usando a chave sanitizada e safeParseFloat)
+    newRow.Uso_CPU = safeParseFloat(newRow.Uso_CPU);
+    newRow.Uso_RAM = safeParseFloat(newRow.Uso_RAM);
+    newRow.Uso_Disco = safeParseFloat(newRow.Uso_Disco);
+    newRow.Carga_Computador = safeParseFloat(newRow.Carga_Computador); // Carga_Computador(0-100) -> Carga_Computador
 
     // Velocidade
-    newRow.DownloadMbps = parseFloat(newRow.DownloadMbps) || 0;
-    newRow.UploadMbps = parseFloat(newRow.UploadMbps) || 0;
-    newRow.Latencia_Speedtestms = parseFloat(newRow.Latencia_Speedtestms) || 0;
+    newRow.DownloadMbps = safeParseFloat(newRow.DownloadMbps); // Download(Mbps) -> DownloadMbps
+    newRow.UploadMbps = safeParseFloat(newRow.UploadMbps);     // Upload(Mbps) -> UploadMbps
+    newRow.Latencia_Speedtestms = safeParseFloat(newRow.Latencia_Speedtestms); // Latencia_Speedtest(ms) -> Latencia_Speedtestms
 
     // 2. Saúde do Meet
-    // Pesquisa o Score (Chave que contém 'saude', 'meet' e '100')
-    const meetScoreKey = Object.keys(newRow).find(key => key.toLowerCase().includes('saude') && key.toLowerCase().includes('meet') && key.includes('100'));
-    newRow.Saude_Meet0100 = meetScoreKey ? parseInt(newRow[meetScoreKey]) || 0 : 0;
-    
-    // CORREÇÃO CRÍTICA: Latência Média do Meet
-    // Pesquisa a chave Latência Média diretamente do row original antes da sanitização
-    const latMeetKey = Object.keys(row).find(key => key.toLowerCase().includes('latencia') && key.toLowerCase().includes('media'));
-    newRow.Latencia_Meet_Media_ms = latMeetKey ? parseFloat(row[latMeetKey]) || 0 : 0; // Se não encontrar, é zero.
+    newRow.Saude_Meet0100 = safeParseFloat(newRow.Saude_Meet0100); // Saude_Meet(0-100) -> Saude_Meet0100
+    newRow.Latencia_Meet_Media_ms = safeParseFloat(newRow.Latencia_Meet_Media_ms); // Latencia_Meet_Media(ms) -> Latencia_Meet_Media_ms
+    newRow.Jitter_Meetms = safeParseFloat(newRow.Jitter_Meetms); // Jitter_Meet(ms) -> Jitter_Meetms
+    newRow.Perda_Meet = safeParseFloat(newRow.Perda_Meet);       // Perda_Meet(%) -> Perda_Meet
 
-    newRow.Jitter_Meetms = parseFloat(newRow.Jitter_Meetms) || 0;
-    newRow.Perda_Meet = parseFloat(newRow.Perda_Meet) || 0;
-
-    // 3. Hops
+    // 3. Hops (Garante que a latência seja numérica)
     for (let i = 1; i <= MAX_TTL; i++) {
-        const latKey = `Hop_LAT_${String(i).padStart(2, '0')}ms`;
-        const ipKey  = `Hop_IP_${String(i).padStart(2, '0')}`;
-        newRow[latKey] = parseFloat(newRow[latKey]) || 0;
-        newRow[ipKey] = (newRow[ipKey] ?? '').toString();
+        const ipKey_Sanitizada = `Hop_IP_${String(i).padStart(2, '0')}`;
+        const latKey_Sanitizada = `Hop_LAT_${String(i).padStart(2, '0')}ms`;
+        
+        // Aplica conversão numérica APENAS na Latência
+        newRow[latKey_Sanitizada] = safeParseFloat(newRow[latKey_Sanitizada]);
+        
+        // Garante que o IP é uma string
+        newRow[ipKey_Sanitizada] = (newRow[ipKey_Sanitizada] ?? '').toString();
     }
     
     return newRow;
@@ -94,7 +98,7 @@ function applySavedTheme() {
         checkbox.checked = true;
     }
     checkbox.addEventListener('change', toggleDarkMode);
-    return saved === 'true'; 
+    return saved === 'true'; 
 }
 
 function startAutoUpdate() {
@@ -110,14 +114,14 @@ function startAutoUpdate() {
 // --------------------------------------------------------------------------
 
 function initMonitor() {
-    const isDark = applySavedTheme(); 
-    
+    const isDark = applySavedTheme(); 
+     
     const statusElement = document.getElementById('statusMessage');
     const fileName = getFileName();
     const fullURL = BASE_CSV_URL + fileName;
 
     showStatus('loading', `Carregando: ${fileName}...`);
-    allData = []; 
+    allData = []; 
     currentDataToDisplay = [];
 
     document.getElementById('startTime').value = "00:00";
@@ -125,20 +129,20 @@ function initMonitor() {
     document.getElementById('event-details').style.display = 'none';
 
     Papa.parse(fullURL, {
-        download: true, 
-        header: true,   
+        download: true, 
+        header: true,   
         skipEmptyLines: true,
         worker: false, // Desabilita worker para evitar falhas de threading
         downloadRequestHeaders: {
-            'Cache-Control': 'no-cache', 
+            'Cache-Control': 'no-cache', 
             'Pragma': 'no-cache',
             'If-Modified-Since': 'Sat, 01 Jan 2000 00:00:00 GMT'
         },
 
         complete: (results) => {
             
-            allData = results.data.map(typeConverter).filter(r => r !== null); 
-            destroyAllCharts(); 
+            allData = results.data.map(typeConverter).filter(r => r !== null); 
+            destroyAllCharts(); 
             
             if (allData.length === 0) {
                 showStatus('error', `Nenhuma linha de dados válida encontrada no arquivo.`);
@@ -179,7 +183,7 @@ function populateHostnames(data) {
     if (hostnames.includes(selectedValue) || selectedValue === 'all') {
          input.value = selectedValue;
     } else {
-        input.value = 'all'; 
+        input.value = 'all'; 
     }
 }
 
@@ -189,7 +193,7 @@ function showStatus(type, message) {
     const container = document.getElementById('statusContainer');
     
     container.className = '';
-    icon.className = 'fas'; 
+    icon.className = 'fas'; 
     msg.textContent = message;
 
     switch (type) {
@@ -243,9 +247,9 @@ function destroyAllCharts() {
     // 1. Destrói as instâncias Chart.js existentes
     if (chartInstanceMeet) chartInstanceMeet.destroy();
     if (chartInstanceMaquina) chartInstanceMaquina.destroy();
-    if (chartInstanceVelocidade) chartInstanceVelocidade.destroy(); 
+    if (chartInstanceVelocidade) chartInstanceVelocidade.destroy(); 
     if (chartInstanceTracert) chartInstanceTracert.destroy();
-    
+     
     // 2. Zera as variáveis de instância (CRUCIAL para estabilidade)
     chartInstanceMeet = null;
     chartInstanceMaquina = null;
@@ -259,7 +263,7 @@ function updateChartTheme() {
 
 function drawAllCharts(dataToDisplay) {
     destroyAllCharts(); // Limpeza crucial no início
-    
+     
     if (!dataToDisplay || dataToDisplay.length === 0) {
         document.getElementById('statusMessage').textContent = "Nenhum dado encontrado no intervalo/hostname.";
         return;
@@ -416,11 +420,11 @@ function drawTracertChart(lastRow, isDark) {
 
     const tracertData = [];
     for (let i = 1; i <= MAX_TTL; i++) {
-        const ipKey  = `Hop_IP_${String(i).padStart(2, '0')}`;
+        const ipKey  = `Hop_IP_${String(i).padStart(2, '0')}`;
         const latKey = `Hop_LAT_${String(i).padStart(2, '0')}ms`;
         const ip = (lastRow[ipKey] ?? '').replace(' [DESTINO]', '');
         const lat = lastRow[latKey];
-        if (lat === 0 || ip === '') continue;
+        if (lat === 0 || ip === '' || ip === 'N/A') continue; // Adicionado 'N/A'
         tracertData.push({ hop: i, ip, latency: lat });
     }
 
@@ -521,7 +525,7 @@ function displayEventDetails(dataRow) {
         const ltKey = `Hop_LAT_${String(i).padStart(2, '0')}ms`;
         const ip = dataRow[ipKey];
         const lt = dataRow[ltKey];
-        if (ip && ip.trim() !== '') {
+        if (ip && ip.trim() !== '' && ip.trim() !== 'N/A') {
             const ltText = (lt > 0) ? `${(+lt).toFixed(2)} ms` : 'Perda/Timeout';
             html += `<p style="margin:5px 0;"><strong>Hop ${i}:</strong> ${ip} (${ltText})</p>`;
             found = true;
@@ -546,16 +550,21 @@ document.addEventListener('DOMContentLoaded', () => {
     if (typeof Chart === 'undefined') {
         document.getElementById('statusMessage').textContent = 'AVISO: Chart.js não carregado. Gráficos desabilitados.';
     }
+    if (typeof d3 === 'undefined') {
+        // d3 é usado para calcular max nos eixos
+        console.warn('AVISO: d3.js não carregado. O cálculo automático dos eixos pode não ser ideal.');
+    }
+
 
     applySavedTheme();
 
     document.getElementById('dateSelect').value = getCurrentDateFormatted();
 
-    // Eventos 
+    // Eventos 
     document.getElementById('btnBuscar').addEventListener('click', initMonitor);
     document.getElementById('dateSelect').addEventListener('change', initMonitor);
     document.getElementById('applyFiltersButton').addEventListener('click', filterChart);
-    document.getElementById('hostnameInput').addEventListener('change', filterChart); 
+    document.getElementById('hostnameInput').addEventListener('change', filterChart); 
     
     // inicialização
     initMonitor();
