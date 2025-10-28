@@ -8,7 +8,7 @@ let currentDataToDisplay = [];
 const AUTO_UPDATE_INTERVAL = 10 * 60 * 1000; // 10 minutos em milissegundos
 let autoUpdateTimer = null; 
 const BASE_CSV_URL = './'; // Caminho relativo para o GitHub Pages
-const MAX_TTL = 30; // Limite fixo de hops para o CSV
+const MAX_TTL = 30; // Limite fixo de hops para o CSV (Deve ser igual ao Python)
 
 // --------------------------------------------------------------------------
 // Funções Auxiliares
@@ -196,7 +196,7 @@ function filterChart() {
     drawAllCharts(filteredData);
 }
 
-// --- SOLUÇÃO ANTI-TRAVAMENTO ---
+// --- FUNÇÃO DE DESTRUIÇÃO CORRIGIDA (SOLUÇÃO ANTI-TRAVAMENTO) ---
 function destroyAllCharts() {
     // 1. Destrói as instâncias Chart.js existentes
     if (chartInstanceMeet) chartInstanceMeet.destroy();
@@ -221,9 +221,16 @@ function destroyAllCharts() {
     containers.forEach(item => {
         const container = document.getElementById(item.id);
         if (container) {
-            // Remove canvas antigo e anexa o novo, de forma segura
+            // Remove o canvas antigo
             document.querySelector(`#${item.id} canvas`)?.remove();
-            container.innerHTML = `${item.title}<canvas id="${item.canvasId}"></canvas>`;
+            
+            // Recria o container com o título e anexa um NOVO canvas (limpo)
+            const newCanvas = document.createElement('canvas');
+            newCanvas.id = item.canvasId;
+            
+            // Re-anexa o título (caso ele tenha sido movido) e o novo canvas
+            container.innerHTML = item.title;
+            container.appendChild(newCanvas);
         }
     });
 }
@@ -234,7 +241,7 @@ function updateChartTheme(isDark) {
 }
 
 function drawAllCharts(dataToDisplay) {
-    // A limpeza é a PRIMEIRA coisa
+    // Limpeza garantida na primeira linha
     destroyAllCharts(); 
     
     if (dataToDisplay.length === 0) {
@@ -255,7 +262,6 @@ function drawAllCharts(dataToDisplay) {
 // FUNÇÕES DE DESENHO DE GRÁFICOS (Chart.js)
 // -----------------------------------
 
-// Função auxiliar para obter o contexto do canvas
 function getChartContext(canvasId) {
     const canvas = document.getElementById(canvasId);
     return canvas ? canvas.getContext('2d') : null;
@@ -372,9 +378,6 @@ function drawVelocidadeChart(dataToDisplay, isDark) {
 }
 
 
-// -------------------------------------------------------------
-// GRÁFICO 3: QUALIDADE DO MEET (Saúde, Latência, Jitter)
-// -------------------------------------------------------------
 function drawMeetCharts(dataToDisplay, isDark) {
     const labels = dataToDisplay.map(row => row.Timestamp.toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'}));
     const dataScores = dataToDisplay.map(row => row.Saude_Meet0100);
@@ -431,9 +434,6 @@ function drawMeetCharts(dataToDisplay, isDark) {
     });
 }
 
-// -------------------------------------------------------------
-// GRÁFICO 4: TRACERT (Rota por Salto)
-// -------------------------------------------------------------
 function drawTracertChart(lastRecord, isDark) {
     if (!lastRecord) return;
     
