@@ -27,27 +27,44 @@ function getFileName() {
     return `py_monitor_${date}.csv`;
 }
 
-// NOVO 1: Parse robusto do Timestamp
+// NOVO: Função para checar a validade de um objeto Date
+function isDateValid(date) {
+    return date instanceof Date && !isNaN(date.getTime());
+}
+
+// NOVO: Parse robusto do Timestamp (Corrigido para formato YYYY-MM-DD HH:MM:SS)
 function parseTimestamp(raw) {
     if (!raw) return null;
     const s = String(raw).trim();
-
-    // CSV no formato "YYYY-MM-DD HH:MM:SS"
+    
+    // Formato do Python: YYYY-MM-DD HH:MM:SS
     if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(s)) {
-        // Tornar ISO usando 'T' garante parse consistente
-        const d = new Date(s.replace(' ', 'T'));
-        return isNaN(d) ? null : d;
+        // Substituir '-' por '/' faz o JS tentar interpretar como data LOCAL (MM/DD/YYYY ou YYYY/MM/DD)
+        // Como o ano é 4 dígitos, ele tende a interpretar YYYY/MM/DD, o que é o que queremos.
+        let local_s = s.replace(/-/g, '/');
+        
+        // Tenta parsear como data local (o mais robusto para este formato)
+        const d_local = new Date(local_s);
+        if (isDateValid(d_local)) return d_local;
+
+        // Fallback: Tentativa de parse componente a componente para garantir
+        const [datePart, timePart] = s.split(' ');
+        const [Y, M, D] = datePart.split('-');
+        const [h, m, sec] = timePart.split(':');
+        
+        // Month no JavaScript é 0-indexed (M-1)
+        const d_comp = new Date(Y, M - 1, D, h, m, sec);
+        if (isDateValid(d_comp)) return d_comp;
     }
 
-    // Fallback genérico
+    // Fallback genérico (se o formato não for o padrão)
     const d = new Date(s);
-    return isNaN(d.getTime()) ? null : d; // Usar getTime() para checagem robusta
+    return isDateValid(d) ? d : null;
 }
 
 // Função auxiliar para garantir que a string seja um float, retornando 0 em caso de falha.
 const safeParseFloat = (value) => {
     if (value === undefined || value === null || value === "") return 0;
-    // Tenta converter, garantindo que o separador decimal seja o ponto (compatível com CSV)
     return parseFloat(String(value).trim().replace(',', '.')) || 0;
 }
 
@@ -68,11 +85,11 @@ function typeConverter(row) {
     if (!hostnameValue || hostnameValue === "N/A" || hostnameValue === "") return null;
     newRow.Hostname = hostnameValue; 
     
-    // 1. APLICAÇÃO: Parse robusto do Timestamp
+    // 1. APLICAÇÃO: Parse robusto do Timestamp (CORRIGIDO)
     newRow.Timestamp = parseTimestamp(newRow.Timestamp);
-    if (!newRow.Timestamp) return null; // Não deixa data inválida passar
+    if (!newRow.Timestamp) return null; // Linha descartada se o Timestamp for inválido
     
-    // 2. Conversão Numérica CRÍTICA usando a chave sanitizada
+    // 2. Conversão Numérica CRÍTICA
     newRow.Uso_CPU = safeParseFloat(newRow.Uso_CPU);
     newRow.Uso_RAM = safeParseFloat(newRow.Uso_RAM);
     newRow.Uso_Disco = safeParseFloat(newRow.Uso_Disco);
@@ -149,7 +166,6 @@ function initMonitor() {
     document.getElementById('endTime').value = "23:59";
     document.getElementById('event-details').style.display = 'none';
     
-    // Garantir que o filtro Hostname tenha o valor padrão 'all'
     const hostnameInput = document.getElementById('hostnameInput');
     if (!hostnameInput.value) {
         hostnameInput.value = 'all';
@@ -173,12 +189,11 @@ function initMonitor() {
             
             if (allData.length === 0) {
                 showStatus('error', `Nenhuma linha de dados válida encontrada no arquivo.`);
-                // Limpa as opções da lista de máquinas
                 document.getElementById('hostnames').innerHTML = '<option value="all" label="Todas as Máquinas"></option>';
                 return;
             }
             
-            showStatus('success', `Dados prontos.`);
+            showStatus('success', `Dados prontos. ${allData.length} registros válidos.`);
             populateHostnames(allData);
             filterChart();
         },
@@ -190,30 +205,26 @@ function initMonitor() {
     });
 }
 
-// AJUSTE 3: Lista de hostnames sempre populada
 function populateHostnames(data) {
-    // Filtra valores nulos/vazios antes de criar o Set
     const hostnames = [...new Set(data.map(d => d.Hostname).filter(Boolean))].sort();
     const datalist = document.getElementById('hostnames');
     const input = document.getElementById('hostnameInput');
-    const selectedValue = input.value || 'all'; // Usa 'all' se estiver vazio
+    const selectedValue = input.value || 'all'; 
 
     datalist.innerHTML = '';
 
-    // Opção 'all'
     const allOption = document.createElement('option');
     allOption.value = 'all';
-    allOption.label = 'Todas as Máquinas'; // <- Adiciona label para melhor exibição
+    allOption.label = 'Todas as Máquinas'; 
     datalist.appendChild(allOption);
 
     hostnames.forEach(host => {
         const option = document.createElement('option');
         option.value = host;
-        option.label = host; // <- Adiciona label para melhor exibição
+        option.label = host; 
         datalist.appendChild(option);
     });
 
-    // Se o valor selecionado não existir mais, volta para 'all'
     input.value = hostnames.includes(selectedValue) ? selectedValue : 'all';
 }
 
@@ -261,8 +272,8 @@ function filterChart() {
     const filtered = allData.filter(row => {
         const ts = row.Timestamp;
         
-        // AJUSTE 2: Não deixe datas inválidas passarem pelo filtro
-        if (!(ts instanceof Date) || isNaN(ts)) return false; 
+        // CORREÇÃO DE VALIDAÇÃO: isDateValid faz o trabalho
+        if (!isDateValid(ts)) return false; 
         
         const hhmm = ts.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', hour12: false });
         const hostOk = (hostFilter === 'all' || row.Hostname === hostFilter);
@@ -319,7 +330,6 @@ function getChartContext(canvasId) {
 // GRÁFICO 1: CARGA DETALHADA DO COMPUTADOR (MAX: 100 FIXO)
 // -------------------------------------------------------------
 function drawMaquinaChart(rows, isDark) {
-    // AJUSTE 2: Garantir que a data seja válida ao gerar labels
     const labels = rows.map(r => (r.Timestamp && !isNaN(r.Timestamp)) 
       ? r.Timestamp.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', hour12: false })
       : ''
@@ -363,7 +373,6 @@ function drawMaquinaChart(rows, isDark) {
 // GRÁFICO 2: TESTE DE VELOCIDADE (Download, Upload, Latência)
 // -------------------------------------------------------------
 function drawVelocidadeChart(rows, isDark) {
-    // AJUSTE 2: Garantir que a data seja válida ao gerar labels
     const labels = rows.map(r => (r.Timestamp && !isNaN(r.Timestamp)) 
       ? r.Timestamp.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', hour12: false })
       : ''
@@ -409,7 +418,6 @@ function drawVelocidadeChart(rows, isDark) {
 // GRÁFICO 3: QUALIDADE DO MEET (SCORE MAX: 100 FIXO)
 // -------------------------------------------------------------
 function drawMeetCharts(rows, isDark) {
-    // AJUSTE 2: Garantir que a data seja válida ao gerar labels
     const labels = rows.map(r => (r.Timestamp && !isNaN(r.Timestamp)) 
       ? r.Timestamp.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', hour12: false })
       : ''
@@ -490,7 +498,6 @@ function drawTracertChart(lastRow, isDark) {
             datasets: [{
                 label: 'Latência por Salto (ms)',
                 data: dataLat,
-                // AJUSTE 4: Destacar o último Hop como destino
                 backgroundColor: dataIps.map((_, i) => i === last ? '#00796B' : '#FF5722'),
                 borderColor:     dataIps.map((_, i) => i === last ? '#00796B' : '#FF5722'),
                 borderWidth: 1
@@ -546,7 +553,7 @@ function displayEventDetails(dataRow) {
         { label: 'IP Público', key: 'IP_Publico' },
         { label: 'Provedor', key: 'Provedor' },
         { label: 'Download (Mbps)', key: 'DownloadMbps', format: d => `${(+d).toFixed(2)}` },
-        { label: 'Carga do PC (%)', key: 'Carga_Computador', format: d => `${d}%` },
+        { label: 'Carga do PC (%)', key: 'Carga_Computador', format: d => `${dataRow.Carga_Computador}%` }, // Corrigido para usar o valor numérico
         { label: 'Saúde Meet (0-100)', key: 'Saude_Meet0100' },
         { label: 'Jitter (ms)', key: 'Jitter_Meetms', format: d => `${(+d).toFixed(2)}` },
         { label: 'Perda (%)', key: 'Perda_Meet', format: d => `${(+d).toFixed(1)}` }
