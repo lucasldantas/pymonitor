@@ -13,13 +13,9 @@ let chartInstanceMaquina = null;
 let chartInstanceVelocidade = null;
 let chartInstanceTracert = null;
 
-// Armazena a lista de hostnames para a seleção múltipla
-let availableHostnames = [];
-
 // ========= Utils =========
 function getCurrentDateFormatted() {
     const today = new Date();
-    // Retorna DD-MM-YY
     const dd = String(today.getDate()).padStart(2, '0');
     const mm = String(today.getMonth() + 1).padStart(2, '0');
     const yy = String(today.getFullYear()).slice(-2);
@@ -27,24 +23,31 @@ function getCurrentDateFormatted() {
 }
 
 function getFileName() {
-    // Mantém o valor bruto do input (DD-MM-YY)
-    const date = document.getElementById('dateSelect').value; 
+    const date = document.getElementById('dateSelect').value;
     return `py_monitor_${date}.csv`;
 }
 
+// NOVO: Função para checar a validade de um objeto Date
 function isDateValid(date) {
     return date instanceof Date && !isNaN(date.getTime());
 }
 
+// NOVO: Parse robusto do Timestamp (Corrigido para formato YYYY-MM-DD HH:MM:SS)
 function parseTimestamp(raw) {
     if (!raw) return null;
     const s = String(raw).trim();
     
+    // Formato do Python: YYYY-MM-DD HH:MM:SS
     if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(s)) {
-        // CORREÇÃO DE FUZO HORÁRIO: Forçar o parse a ignorar o offset e usar o local
-        // Se a data é '2025-10-28 14:10:24', o construtor Date(Y, M-1, D, h, m, s) 
-        // é o mais seguro para usar o fuso horário local.
+        // Substituir '-' por '/' faz o JS tentar interpretar como data LOCAL (MM/DD/YYYY ou YYYY/MM/DD)
+        // Como o ano é 4 dígitos, ele tende a interpretar YYYY/MM/DD, o que é o que queremos.
+        let local_s = s.replace(/-/g, '/');
         
+        // Tenta parsear como data local (o mais robusto para este formato)
+        const d_local = new Date(local_s);
+        if (isDateValid(d_local)) return d_local;
+
+        // Fallback: Tentativa de parse componente a componente para garantir
         const [datePart, timePart] = s.split(' ');
         const [Y, M, D] = datePart.split('-');
         const [h, m, sec] = timePart.split(':');
@@ -54,48 +57,60 @@ function parseTimestamp(raw) {
         if (isDateValid(d_comp)) return d_comp;
     }
 
+    // Fallback genérico (se o formato não for o padrão)
     const d = new Date(s);
     return isDateValid(d) ? d : null;
 }
 
+// Função auxiliar para garantir que a string seja um float, retornando 0 em caso de falha.
 const safeParseFloat = (value) => {
     if (value === undefined || value === null || value === "") return 0;
     return parseFloat(String(value).trim().replace(',', '.')) || 0;
 }
 
 
+// Normaliza nomes de colunas e tipos
 function typeConverter(row) {
     if (!row.Timestamp) return null; 
 
     const newRow = {};
     for (const key in row) {
+        // Sanitiza a chave: remove (), %, e espaços (mantendo o ponto).
         const cleanKey = key.replace(/[\(\)%]/g, '').replace(/ /g, '_'); 
         newRow[cleanKey] = row[key];
     }
     
+    // --- CHECAGEM CRÍTICA DO HOSTNAME ---
     const hostnameValue = newRow.Hostname ? newRow.Hostname.trim() : '';
     if (!hostnameValue || hostnameValue === "N/A" || hostnameValue === "") return null;
     newRow.Hostname = hostnameValue; 
     
+    // 1. APLICAÇÃO: Parse robusto do Timestamp (CORRIGIDO)
     newRow.Timestamp = parseTimestamp(newRow.Timestamp);
-    if (!newRow.Timestamp) return null; 
+    if (!newRow.Timestamp) return null; // Linha descartada se o Timestamp for inválido
     
-    // Conversão Numérica
+    // 2. Conversão Numérica CRÍTICA
     newRow.Uso_CPU = safeParseFloat(newRow.Uso_CPU);
     newRow.Uso_RAM = safeParseFloat(newRow.Uso_RAM);
     newRow.Uso_Disco = safeParseFloat(newRow.Uso_Disco);
     newRow.Carga_Computador = safeParseFloat(newRow.Carga_Computador); 
+
+    // Velocidade
     newRow.DownloadMbps = safeParseFloat(newRow.DownloadMbps); 
     newRow.UploadMbps = safeParseFloat(newRow.UploadMbps);     
     newRow.Latencia_Speedtestms = safeParseFloat(newRow.Latencia_Speedtestms); 
+
+    // Saúde do Meet
     newRow.Saude_Meet0100 = safeParseFloat(newRow.Saude_Meet0100); 
     newRow.Latencia_Meet_Media_ms = safeParseFloat(newRow.Latencia_Meet_Media_ms); 
     newRow.Jitter_Meetms = safeParseFloat(newRow.Jitter_Meetms); 
     newRow.Perda_Meet = safeParseFloat(newRow.Perda_Meet);       
 
+    // Hops
     for (let i = 1; i <= MAX_TTL; i++) {
         const ipKey_Sanitizada = `Hop_IP_${String(i).padStart(2, '0')}`;
         const latKey_Sanitizada = `Hop_LAT_${String(i).padStart(2, '0')}ms`;
+        
         newRow[latKey_Sanitizada] = safeParseFloat(newRow[latKey_Sanitizada]);
         newRow[ipKey_Sanitizada] = (newRow[ipKey_Sanitizada] ?? '').toString();
     }
@@ -137,8 +152,9 @@ function startAutoUpdate() {
 // --------------------------------------------------------------------------
 
 function initMonitor() {
-    applySavedTheme(); 
+    const isDark = applySavedTheme(); 
      
+    const statusElement = document.getElementById('statusMessage');
     const fileName = getFileName();
     const fullURL = BASE_CSV_URL + fileName;
 
@@ -150,7 +166,10 @@ function initMonitor() {
     document.getElementById('endTime').value = "23:59";
     document.getElementById('event-details').style.display = 'none';
     
-    document.getElementById('selectedHostnameSummary').textContent = 'Carregando...';
+    const hostnameInput = document.getElementById('hostnameInput');
+    if (!hostnameInput.value) {
+        hostnameInput.value = 'all';
+    }
 
     Papa.parse(fullURL, {
         download: true, 
@@ -170,8 +189,7 @@ function initMonitor() {
             
             if (allData.length === 0) {
                 showStatus('error', `Nenhuma linha de dados válida encontrada no arquivo.`);
-                availableHostnames = [];
-                populateHostnames(allData); 
+                document.getElementById('hostnames').innerHTML = '<option value="all" label="Todas as Máquinas"></option>';
                 return;
             }
             
@@ -187,152 +205,37 @@ function initMonitor() {
     });
 }
 
-// --------------------------------------------------------------------------
-// Lógica de Seleção Múltipla de Hostname
-// --------------------------------------------------------------------------
-
-function toggleDropdown() {
-    const menu = document.getElementById('hostnameDropdownMenu');
-    const toggleButton = document.getElementById('hostnameDropdownToggle');
-    const isExpanded = toggleButton.getAttribute('aria-expanded') === 'true';
-    
-    if (isExpanded) {
-        menu.classList.remove('show');
-        toggleButton.setAttribute('aria-expanded', 'false');
-    } else {
-        menu.classList.add('show');
-        toggleButton.setAttribute('aria-expanded', 'true');
-        
-        const searchInput = document.getElementById('hostnameSearchInput');
-        if (searchInput) searchInput.focus();
-    }
-}
-
-function handleSearchInput(input) {
-    const filter = input.value.toUpperCase();
-    const menuContainer = document.getElementById('hostnameDropdownMenu');
-    
-    // Pula os primeiros elementos (Busca, HR, Todas as Máquinas, HR) para focar nas opções individuais
-    const options = menuContainer.querySelectorAll('.filter-option'); 
-    
-    // Começa do índice 2 para pegar a primeira máquina (index 0 = Busca, 1 = Todas)
-    for (let i = 2; i < options.length; i++) { 
-        const option = options[i];
-        const label = option.querySelector('label');
-        if (label) {
-            const textValue = label.textContent || label.innerText;
-            if (textValue.toUpperCase().indexOf(filter) > -1) {
-                option.style.display = "flex";
-            } else {
-                option.style.display = "none";
-            }
-        }
-    }
-}
-
 function populateHostnames(data) {
-    availableHostnames = [...new Set(data.map(d => d.Hostname).filter(Boolean))].sort();
-    
-    const menuContainer = document.getElementById('hostnameDropdownMenu');
-    let selectedHostnames = getSelectedHostnames();
-    if (selectedHostnames.length === 0 || selectedHostnames.includes('all')) {
-        selectedHostnames = ['all']; 
-    }
-    
-    let htmlContent = [];
-    
-    // --- 0. Campo de Busca ---
-    htmlContent.push(`
-        <div class="filter-option" style="padding-bottom: 5px;">
-             <input type="text" id="hostnameSearchInput" placeholder="Pesquisar hostname..." 
-                   style="width: 100%; box-sizing: border-box; padding: 5px 8px; border-radius: 4px;" 
-                   onkeyup="handleSearchInput(this)">
-        </div>
-        <hr/>
-    `);
+    const hostnames = [...new Set(data.map(d => d.Hostname).filter(Boolean))].sort();
+    const datalist = document.getElementById('hostnames');
+    const input = document.getElementById('hostnameInput');
+    const previousValue = input.value; 
 
-    // --- 1. Opção "all" ---
-    const allChecked = selectedHostnames.includes('all') || availableHostnames.every(h => selectedHostnames.includes(h));
+    // 1. Limpa o Datalist
+    datalist.innerHTML = '';
 
-    htmlContent.push(`
-        <div class="filter-option">
-            <input type="checkbox" id="host-all" value="all" 
-                   onchange="handleHostnameToggle(this, true)" ${allChecked ? 'checked' : ''}>
-            <label for="host-all">Todas as Máquinas</label>
-        </div>
-        <hr/>
-    `);
+    // 2. Popula o Datalist (Mantenho a lógica de criar 'option' com 'label')
+    const allOption = document.createElement('option');
+    allOption.value = 'all';
+    allOption.label = 'Todas as Máquinas'; 
+    datalist.appendChild(allOption);
 
-    // --- 2. Opções individuais ---
-    availableHostnames.forEach(host => {
-        const isChecked = allChecked || selectedHostnames.includes(host);
-        htmlContent.push(`
-            <div class="filter-option">
-                <input type="checkbox" id="host-${host}" value="${host}" 
-                       onchange="handleHostnameToggle(this, false)" ${isChecked ? 'checked' : ''}>
-                <label for="host-${host}">${host}</label>
-            </div>
-        `);
+    hostnames.forEach(host => {
+        const option = document.createElement('option');
+        option.value = host;
+        option.label = host; 
+        datalist.appendChild(option);
     });
-    
-    menuContainer.innerHTML = htmlContent.join('');
-    updateHostnameSummary();
-}
 
-function getSelectedHostnames() {
-    const menu = document.getElementById('hostnameDropdownMenu');
-    if (!menu) return ['all'];
+    // --- NOVO BLOCO CRÍTICO DE SINCRONIZAÇÃO ---
     
-    const checkboxes = menu.querySelectorAll('input[type="checkbox"]:checked');
-    const selected = Array.from(checkboxes).map(cb => cb.value);
-    
-    const individualSelected = selected.filter(val => val !== 'all');
-    
-    if (individualSelected.length === 0 && availableHostnames.length > 0) {
-        return ['all'];
-    }
-    
-    if (selected.includes('all') || individualSelected.length === availableHostnames.length) {
-        return ['all'];
-    }
-    
-    return individualSelected;
-}
-
-function updateHostnameSummary() {
-    const selectedHosts = getSelectedHostnames();
-    const summarySpan = document.getElementById('selectedHostnameSummary');
-    
-    const count = availableHostnames.length;
-
-    if (selectedHosts.includes('all')) {
-        summarySpan.textContent = `Todas as Máquinas (${count})`;
+    // 3. Define o valor do Input
+    // Se o valor anterior é válido ou é 'all', mantém. Senão, força 'all'.
+    if (hostnames.includes(previousValue) || previousValue === 'all') {
+        input.value = previousValue;
     } else {
-        summarySpan.textContent = `${selectedHosts.length} Máquinas Selecionadas (${count})`;
+        input.value = 'all';
     }
-}
-
-function handleHostnameToggle(checkbox, isAllOption) {
-    const menuContainer = document.getElementById('hostnameDropdownMenu');
-    const allCheckbox = document.getElementById('host-all');
-
-    if (isAllOption) {
-        const isChecked = checkbox.checked;
-        const individualCheckboxes = menuContainer.querySelectorAll('input[type="checkbox"]:not(#host-all)');
-        individualCheckboxes.forEach(cb => cb.checked = isChecked);
-    } else {
-        if (!checkbox.checked && allCheckbox && allCheckbox.checked) {
-            allCheckbox.checked = false;
-        }
-        const individualCheckboxes = menuContainer.querySelectorAll('input[type="checkbox"]:not(#host-all)');
-        const allIndividualChecked = Array.from(individualCheckboxes).every(cb => cb.checked);
-        if (allIndividualChecked && allCheckbox) {
-            allCheckbox.checked = true;
-        }
-    }
-    
-    updateHostnameSummary();
-    filterChart(); 
 }
 
 function showStatus(type, message) {
@@ -347,7 +250,7 @@ function showStatus(type, message) {
     switch (type) {
         case 'loading':
             container.classList.add('loading');
-            icon.classList.add('fa-spinner', 'fa-spin');
+            icon.classList.add('fa-spinner');
             break;
         case 'success':
             container.classList.add('success');
@@ -372,24 +275,18 @@ function showStatus(type, message) {
 function filterChart() {
     const startTimeStr = document.getElementById('startTime').value;
     const endTimeStr = document.getElementById('endTime').value;
-    
-    const selectedHosts = getSelectedHostnames();
+    const hostFilter = document.getElementById('hostnameInput').value;
 
-    if (!allData || allData.length === 0) {
-        currentDataToDisplay = [];
-        drawAllCharts([]);
-        return;
-    }
+    if (!allData || allData.length === 0) return;
 
     const filtered = allData.filter(row => {
         const ts = row.Timestamp;
         
+        // CORREÇÃO DE VALIDAÇÃO: isDateValid faz o trabalho
         if (!isDateValid(ts)) return false; 
         
         const hhmm = ts.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', hour12: false });
-        
-        const hostOk = (selectedHosts.includes('all') || selectedHosts.includes(row.Hostname));
-        
+        const hostOk = (hostFilter === 'all' || row.Hostname === hostFilter);
         const timeOk = (hhmm >= startTimeStr && hhmm <= endTimeStr);
         return hostOk && timeOk;
     });
@@ -588,15 +485,10 @@ function drawTracertChart(lastRow, isDark) {
         tracertData.push({ hop: i, ip, latency: lat });
     }
 
-    const tracertContainer = document.getElementById('chart-tracert');
     if (tracertData.length === 0) {
-        tracertContainer.innerHTML = '<h3><i class="fas fa-route"></i> 4. Tracert do Meet (Rota por Salto)</h3><p>Nenhum dado de rota (Tracert) válido para plotagem.</p>';
+        document.getElementById('chart-tracert').innerHTML = '<h3><i class="fas fa-route"></i> 4. Tracert do Meet (Rota por Salto)</h3><p>Nenhum dado de rota (Tracert) válido para plotagem.</p>';
         return;
     }
-    if (!document.getElementById('tracertChartCanvas')) {
-        tracertContainer.innerHTML = '<h3><i class="fas fa-route"></i> 4. Tracert do Meet (Rota por Salto)</h3><div class="chart-container"><canvas id="tracertChartCanvas"></canvas></div>';
-    }
-
 
     const labels = tracertData.map(d => `Hop ${d.hop}`);
     const dataLat = tracertData.map(d => d.latency);
@@ -671,7 +563,7 @@ function displayEventDetails(dataRow) {
         { label: 'IP Público', key: 'IP_Publico' },
         { label: 'Provedor', key: 'Provedor' },
         { label: 'Download (Mbps)', key: 'DownloadMbps', format: d => `${(+d).toFixed(2)}` },
-        { label: 'Carga do PC (%)', key: 'Carga_Computador', format: d => `${dataRow.Carga_Computador}%` }, 
+        { label: 'Carga do PC (%)', key: 'Carga_Computador', format: d => `${dataRow.Carga_Computador}%` }, // Corrigido para usar o valor numérico
         { label: 'Saúde Meet (0-100)', key: 'Saude_Meet0100' },
         { label: 'Jitter (ms)', key: 'Jitter_Meetms', format: d => `${(+d).toFixed(2)}` },
         { label: 'Perda (%)', key: 'Perda_Meet', format: d => `${(+d).toFixed(1)}` }
@@ -713,7 +605,14 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('statusMessage').textContent = 'ERRO: PapaParse (CSV Reader) não está carregado. Verifique seu index.html.';
         return;
     }
-    
+    if (typeof Chart === 'undefined') {
+        document.getElementById('statusMessage').textContent = 'AVISO: Chart.js não carregado. Gráficos desabilitados.';
+    }
+    if (typeof d3 === 'undefined') {
+        console.warn('AVISO: d3.js não carregado. O cálculo automático dos eixos pode não ser ideal.');
+    }
+
+
     applySavedTheme();
 
     document.getElementById('dateSelect').value = getCurrentDateFormatted();
@@ -722,19 +621,8 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('btnBuscar').addEventListener('click', initMonitor);
     document.getElementById('dateSelect').addEventListener('change', initMonitor);
     document.getElementById('applyFiltersButton').addEventListener('click', filterChart);
+    document.getElementById('hostnameInput').addEventListener('change', filterChart); 
     
-    // Configura o fechamento do dropdown ao clicar fora
-    document.addEventListener('click', (event) => {
-        const container = document.getElementById('hostnameDropdownContainer');
-        const menu = document.getElementById('hostnameDropdownMenu');
-        const toggleButton = document.getElementById('hostnameDropdownToggle');
-        
-        if (container && menu && toggleButton && !container.contains(event.target) && menu.classList.contains('show')) {
-            menu.classList.remove('show');
-            toggleButton.setAttribute('aria-expanded', 'false');
-        }
-    });
-
     // inicialização
     initMonitor();
     startAutoUpdate();
